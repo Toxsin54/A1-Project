@@ -644,8 +644,7 @@ BEGIN
         'send_sms', true,
         'sms_to', fn_phone_e164(v_res.phone),
         'sms_text', format('Sayın %s, rezervasyonunuz onaylandı. Rez. No: %s | %s. %s',
-                           v_res.customer_name, v_res.code, v_sum, fn_setting('sms_signature', '')))
-        || fn_guest_note(v_res.id, 'oluşturuldu');
+                           v_res.customer_name, v_res.code, v_sum, fn_setting('sms_signature', '')));
 END $$;
 
 
@@ -737,8 +736,7 @@ BEGIN
         'send_sms', true,
         'sms_to', fn_phone_e164(v_res.phone),
         'sms_text', format('Sayın %s, %s numaralı rezervasyonunuz güncellendi: %s. %s',
-                           v_res.customer_name, v_res.code, v_sum, fn_setting('sms_signature', '')))
-        || fn_guest_note(v_res.id, 'güncellendi');
+                           v_res.customer_name, v_res.code, v_sum, fn_setting('sms_signature', '')));
 END $$;
 
 
@@ -778,8 +776,7 @@ BEGIN
         'sms_to', fn_phone_e164(v_res.phone),
         'sms_text', format('Sayın %s, %s numaralı rezervasyonunuz iptal edilmiştir (%s). %s',
                            v_res.customer_name, v_res.code, fn_reservation_summary(v_res),
-                           fn_setting('sms_signature', '')))
-        || fn_guest_note(v_res.id, 'iptal edildi');
+                           fn_setting('sms_signature', '')));
 END $$;
 
 
@@ -820,102 +817,6 @@ BEGIN
                                  r.customer_name, fn_reservation_summary(r));
     END LOOP;
     RETURN jsonb_build_object('ok', true, 'send_sms', false, 'reservations', v_list, 'message', v_msg);
-END $$;
-
-
--- =====================================================================
--- Obsidian misafir notu
---   create / modify / cancel başarılı olduğunda sonuca note_path,
---   note_content ve note_message eklenir. n8n bu notu GitHub'daki
---   Obsidian vault deposuna "Oteller/<Otel>/<Misafir>.md" olarak yazar.
---   Not, aynı telefonla aynı oteldeki TÜM rezervasyonları listeler.
---   "%% manuel-notlar %%" işaretinin altı n8n tarafından korunur.
--- =====================================================================
-CREATE OR REPLACE FUNCTION fn_safe_filename(p text)
-RETURNS text LANGUAGE sql IMMUTABLE AS $$
-    SELECT COALESCE(NULLIF(btrim(regexp_replace(regexp_replace(COALESCE(p, ''), '[\\/:*?"<>|#^\[\]]', ' ', 'g'),
-                                                '\s+', ' ', 'g'), ' .-'), ''), 'isimsiz');
-$$;
-
-CREATE OR REPLACE FUNCTION fn_md_cell(p text)
-RETURNS text LANGUAGE sql IMMUTABLE AS $$
-    SELECT replace(regexp_replace(COALESCE(p, ''), '\s+', ' ', 'g'), '|', '\|');
-$$;
-
-CREATE OR REPLACE FUNCTION fn_yaml(p text)
-RETURNS text LANGUAGE sql IMMUTABLE AS $$
-    SELECT '"' || replace(replace(COALESCE(p, ''), '\', '\\'), '"', '\"') || '"';
-$$;
-
-CREATE OR REPLACE FUNCTION fn_guest_note(p_reservation_id bigint, p_action text DEFAULT 'güncellendi')
-RETURNS jsonb LANGUAGE plpgsql STABLE AS $$
-DECLARE
-    r        reservations;
-    h        hotels;
-    x        record;
-    v_rows   text := '';
-    v_count  int;
-    v_total  numeric;
-    v_now    text := to_char(now() AT TIME ZONE fn_setting('timezone', 'Europe/Istanbul'), 'YYYY-MM-DD HH24:MI');
-    v_status text;
-    v_md     text;
-BEGIN
-    SELECT * INTO r FROM reservations WHERE id = p_reservation_id;
-    IF r.id IS NULL THEN
-        RETURN '{}'::jsonb;
-    END IF;
-    SELECT hh.* INTO h FROM hotels hh JOIN room_types rt ON rt.hotel_id = hh.id WHERE rt.id = r.room_type_id;
-
-    FOR x IN SELECT res.code, res.check_in, res.check_out, res.nights, res.guests, res.total_price,
-                    res.status, res.notes, rt.name AS room_name, rt.currency
-             FROM reservations res
-             JOIN room_types rt ON rt.id = res.room_type_id
-             WHERE rt.hotel_id = h.id AND fn_phone_key(res.phone) = fn_phone_key(r.phone)
-             ORDER BY res.check_in DESC, res.id DESC
-    LOOP
-        v_rows := v_rows || format(E'| %s | %s | %s | %s | %s | %s | %s | %s | %s |\n',
-            x.code, fn_md_cell(x.room_name), to_char(x.check_in, 'DD.MM.YYYY'), to_char(x.check_out, 'DD.MM.YYYY'),
-            x.nights, x.guests, fn_money(x.total_price, x.currency),
-            CASE x.status WHEN 'confirmed' THEN '✅ Onaylı' ELSE '❌ İptal' END,
-            fn_md_cell(x.notes));
-    END LOOP;
-
-    SELECT count(*), COALESCE(sum(res.total_price) FILTER (WHERE res.status = 'confirmed'), 0)
-      INTO v_count, v_total
-    FROM reservations res JOIN room_types rt ON rt.id = res.room_type_id
-    WHERE rt.hotel_id = h.id AND fn_phone_key(res.phone) = fn_phone_key(r.phone);
-
-    v_status := CASE r.status WHEN 'confirmed' THEN 'Onaylı' ELSE 'İptal' END;
-
-    v_md := E'---\n'
-        || E'tip: misafir\n'
-        || 'ad_soyad: ' || fn_yaml(r.customer_name) || E'\n'
-        || 'telefon: ' || fn_yaml(fn_phone_e164(r.phone)) || E'\n'
-        || 'otel: ' || fn_yaml(h.name) || E'\n'
-        || 'bolge: ' || fn_yaml(h.region) || E'\n'
-        || 'son_rezervasyon: ' || fn_yaml(r.code) || E'\n'
-        || 'son_durum: ' || fn_yaml(v_status) || E'\n'
-        || 'rezervasyon_sayisi: ' || v_count || E'\n'
-        || 'aktif_toplam_tl: ' || round(v_total) || E'\n'
-        || 'guncelleme: ' || v_now || E'\n'
-        || E'tags: [misafir]\n'
-        || E'---\n'
-        || '# ' || r.customer_name || E'\n\n'
-        || '- **Otel:** [[' || h.name || ']] (' || h.region || ', ' || h.board_type || E')\n'
-        || '- **Telefon:** ' || fn_phone_e164(r.phone) || E'\n'
-        || '- **Son işlem:** ' || r.code || ' numaralı rezervasyon ' || p_action || ' (' || v_now || E')\n\n'
-        || E'## Rezervasyonlar\n\n'
-        || E'| No | Oda | Giriş | Çıkış | Gece | Kişi | Tutar | Durum | Not |\n'
-        || E'|---|---|---|---|---:|---:|---:|---|---|\n'
-        || v_rows
-        || E'\n> [!info] Bu notun üst kısmı rezervasyon sisteminden otomatik güncellenir. Kendi notlarınızı **Notlarım** başlığının altına yazın; onlar korunur.\n\n'
-        || E'## Notlarım\n'
-        || '%% manuel-notlar %%';
-
-    RETURN jsonb_build_object(
-        'note_path', 'Oteller/' || fn_safe_filename(h.name) || '/' || fn_safe_filename(r.customer_name) || '.md',
-        'note_content', v_md,
-        'note_message', format('%s: %s numaralı rezervasyon %s', r.customer_name, r.code, p_action));
 END $$;
 
 -- >>> db/03_seed.sql
