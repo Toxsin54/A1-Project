@@ -51,7 +51,9 @@ LANGUAGE sql STABLE AS $$
     WHERE v.instrument_code = i.code AND v.trade_date <= p_as_of
     ORDER BY v.trade_date DESC LIMIT 1
   ) d ON true
+  -- Kaynağı kapalı olan seriler (ör. lisans alınmamış) rapora girmez ve "bayat" sayılmaz
   WHERE i.is_active
+    AND EXISTS (SELECT 1 FROM energy.sources s WHERE s.code = i.source_code AND s.is_enabled)
   ORDER BY i.segment, i.code
 $$;
 

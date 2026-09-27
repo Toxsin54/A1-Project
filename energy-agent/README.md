@@ -44,7 +44,9 @@ Kuruluş repodaki diğer projelerle aynıdır: zamanlama ve entegrasyonlar **n8n
 |---|---|
 | `db/01_schema.sql` | Tablolar: kaynaklar, enstrümanlar, fiyatlar, göstergeler, haberler, kümeler, LLM analizleri, fiyat hareketleri, takvim, rapor outbox'ı |
 | `db/02_analytics.sql` | Deterministik hesaplar: `fn_snapshot`, `fn_derived_snapshot`, `v_indicator_changes`, `fn_assign_cluster`, `fn_cluster_scores`, `fn_detect_moves`, `fn_build_context`, `fn_save_report`, `fn_mark_delivery`; analist için `energy_reader` rolü |
-| `db/03_seed.sql` | Başlangıç kataloğu: 25 kaynak, 22 enstrüman, 11 türetilmiş metrik, 10 gösterge |
+| `db/03_seed.sql` | Başlangıç kataloğu: 25 kaynak, 22 enstrüman, 11 türetilmiş metrik, 10 gösterge. n8n workflow'unun bağladığı 7 kaynak açık, diğerleri kapalı gelir |
+| `db/04_ingest.sql` | n8n'in çağırdığı fonksiyonlar: fiyat/gösterge/PTF kaydı, haber ekleme ve kümeleme, LLM analizini doğrulayıp kaydetme, teslim listesi |
+| `../n8n/energy-agent-workflow.json` | n8n'e içe aktarılacak workflow (bkz. **n8n kurulumu**) |
 | `contracts/agent-report-envelope.schema.json` | **Tüm ajanlar için** önerilen ortak rapor zarfı |
 | `contracts/energy-report.schema.json` | Zarf + enerji payload'u. Analist ajana giden raporun sözleşmesi |
 | `contracts/news-analysis.schema.json` | Sınıflandırıcı LLM'in haber kümesi başına döndüğü yapı |
@@ -204,17 +206,19 @@ Analist bir bulguyu derinleştirmek isterse şu araçları çağırır. Araçlar
 
 Analist aynı PostgreSQL'e erişebiliyorsa `energy_reader` rolünü kullanan bir kullanıcıyla doğrudan SQL de çalıştırabilir.
 
-## 6. n8n iş akışları (uygulanacak)
+## 6. n8n workflow'u
 
-| İş akışı | Tetikleyici | Adımlar |
+Tek dosya: `n8n/energy-agent-workflow.json`. Beş zamanlayıcı aynı *Enerji Ayarları* düğümünden geçer, *Akışa Göre* düğümü her birini kendi koluna yollar. Ayarlar tek yerde durur.
+
+| Kol | Zaman (TSİ) | Adımlar |
 |---|---|---|
-| `energy-market-ingest` | Kaynak başına Schedule (`sources.poll_interval`) | HTTP Request → Code (normalize) → Postgres upsert → `ingest_runs` / `sources.last_success_at` |
-| `energy-news-ingest` | 10 dk | RSS Read / HTTP → URL temizleme + ön filtre → `news_items` insert (`ON CONFLICT DO NOTHING`) → `fn_assign_cluster` |
-| `energy-news-analyze` | 10 dk | `needs_analysis` kümeler (en fazla 20) → LLM Chain + Structured Output Parser → `news_analyses` |
-| `energy-moves` | Fiyat toplandıktan sonra | `fn_detect_moves` → eşik aşılırsa `alert` raporu |
-| `energy-reports` | 08:00, ~23:00, Cumartesi 10:00; `calendar_events` saatinden 15 dk sonra | `fn_build_context` → LLM → doğrulama → `fn_save_report` |
-| `energy-deliver` | 1 dk | Outbox → HMAC → POST → `fn_mark_delivery` |
-| `energy-tools` | Webhook / MCP Server Trigger | Bölüm 5'teki araçlar |
+| Piyasa | 3 saatte bir (x:10) | *EIA Serileri* → *EIA API* → *EIA Kaydet* · *EPİAŞ Giriş* → *EPİAŞ PTF* → *PTF Kaydet* (ayarlardan açılır) · *TCMB Kurlar* → *Kurları Kaydet* |
+| Haber | 15 dakikada bir | *RSS Beslemeleri* → *RSS Oku* → *RSS Hazırla* · *GDELT* → *GDELT Hazırla* → *Haberleri Kaydet* (`fn_ingest_news`: ekleme + kümeleme) |
+| Analiz | 15 dakikada bir (x:07) | *Analiz Bekleyen Kümeler* (en fazla 20) → *Sınıflandır (OpenAI)* (yapılandırılmış çıktı) → *Analizi Kaydet* (`fn_save_analysis` doğrular) |
+| Rapor | 08:00 ve 23:00 | *Rapor Türü* → *Hareketleri Tespit Et* → *Bağlam Paketi* → *Raporu Yaz (OpenAI)* → *Raporu Birleştir* (doğrulama) → gerekirse *Raporu Düzelt* → *Raporu Kaydet* |
+| Teslim | Rapor kaydedilince ve 15 dakikada bir (x:03) | *Analist Açık mı?* → *Gönderilecek Raporlar* → *Raporu İmzala* (HMAC) → *Analiste Gönder* → *Gönderimi İşaretle* |
+
+Henüz yapılmayanlar (faz 2): `weekly_outlook`, `event_note` ve `alert` raporları, olay takvimini dolduran akış, analist için araçlar (MCP).
 
 **Model seçimi.** Sınıflandırma çok sayıda kısa çağrıdan oluşur; küçük ve hızlı bir model yeterlidir. Rapor yazımı günde birkaç çağrıdır; güçlü bir model kullanılmalıdır. Model adı `news_analyses.model` alanına, prompt sürümü `prompt_version` alanına kaydedilir. Böylece model değişikliğinin etkisi ölçülebilir.
 
@@ -243,18 +247,82 @@ Analist aynı PostgreSQL'e erişebiliyorsa `energy_reader` rolünü kullanan bir
 
 | Faz | Kapsam |
 |---|---|
-| 1: MVP | Ücretsiz kaynaklar (EIA, EPİAŞ, ENTSO-E, AGSI+, EEX, TCMB/ECB, CFTC) · 10-15 RSS kaynağı · kümeleme + sınıflandırma · `daily_close` raporu · analiste push |
-| 2 | `morning_brief`, `event_note`, `alert` · olay takvimi · fiyat ↔ haber eşleştirme · analist için araçlar (MCP) · değerlendirme seti |
+| 1: MVP (workflow hazır) | EIA, EPİAŞ, TCMB · RSS (EIA, Rigzone, Google News TR/EN) ve GDELT · kümeleme + sınıflandırma · fiyat ↔ haber eşleştirme · `morning_brief` ve `daily_close` · analiste push |
+| 2 | ENTSO-E, AGSI+, EEX, CFTC, Baker Hughes toplayıcıları · resmî kurum duyuruları (OPEC, EPDK, EPİAŞ, Resmî Gazete) · `weekly_outlook`, `event_note`, `alert` · olay takvimi · analist için araçlar (MCP) · değerlendirme seti |
 | 3 | Lisanslı vadeli akış (ICE Brent, Gasoil, TTF, JKM, EUA) ve vadeli eğri · çok dilli kümeleme için embedding (pgvector) · backtest ve kalibrasyon raporu · Türkiye pompa fiyatları ve BOTAŞ tarifeleri |
 
-## Kurulum ve test
+## n8n kurulumu
+
+### 1) Veritabanı
+
+Dört dosyayı sırayla yükleyin. Tekrar çalıştırmak güvenlidir; veriler silinmez.
 
 ```bash
-psql "$DATABASE_URL" -f energy-agent/db/01_schema.sql -f energy-agent/db/02_analytics.sql -f energy-agent/db/03_seed.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f energy-agent/test/smoke_test.sql     # "smoke test OK" yazar, veri bırakmaz
+psql "$DATABASE_URL" -f energy-agent/db/01_schema.sql -f energy-agent/db/02_analytics.sql \
+                     -f energy-agent/db/03_seed.sql -f energy-agent/db/04_ingest.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f energy-agent/test/smoke_test.sql   # "smoke test OK" yazar, veri bırakmaz
+```
 
+Supabase kullanıyorsanız SQL Editor'e dört dosyanın içeriğini sırayla yapıştırıp çalıştırın. Tablolar ayrı bir `energy` şemasında durur; rezervasyon tablolarıyla aynı veritabanında çakışmadan çalışır. Başlık kümelemesi için gereken `pg_trgm` eklentisi PostgreSQL ve Supabase'de hazırdır.
+
+### 2) Workflow'u içe aktarın
+
+n8n'de **Workflows → Import from File** ile `n8n/energy-agent-workflow.json` dosyasını seçin. Workflow kapalı gelir.
+
+### 3) Credential'lar
+
+| Düğümler | Credential | Not |
+|---|---|---|
+| Tüm Postgres düğümleri (13) | **A1 Postgres** (mevcut) | `energy` şemasının olduğu veritabanı |
+| *EIA API* | Yeni **Query Auth**: Name `api_key`, Value EIA anahtarınız | Anahtar ücretsizdir: eia.gov/opendata üzerinden e-postayla alınır |
+| *Sınıflandır (OpenAI)*, *Raporu Yaz (OpenAI)*, *Raporu Düzelt (OpenAI)* | **OpenAI** (mevcut) | Mesaj asistanının kullandığı credential |
+| *Raporu İmzala* | Yeni **Crypto**: HMAC Secret = analist ajanla paylaşılan uzun rastgele değer | Teslim kapalı olsa da oluşturun; n8n credential'ı eksik düğüm varsa workflow'u yayınlamaz |
+
+### 4) *Enerji Ayarları* düğümü
+
+| Alan | Varsayılan | Açıklama |
+|---|---|---|
+| `openai_classify_model` | `gpt-4o-mini` | Haber sınıflandırma (çok sayıda kısa çağrı) |
+| `openai_report_model` | `gpt-4o` | Rapor yazımı (günde 2-4 çağrı) |
+| `prompt_version` | `news-v1` | Sınıflandırma talimatını değiştirdiğinizde artırın; analizlere kaydedilir |
+| `news_batch_size` | 20 | Bir çalıştırmada analiz edilecek en fazla küme |
+| `morning_lookback_hours`, `daily_lookback_hours` | 16, 24 | Raporun kapsadığı haber süresi |
+| `epias_enabled`, `epias_username`, `epias_password` | kapalı | EPİAŞ Şeffaflık Platformu hesabı (ücretsiz). Şifre bu düğümde durduğu için sadece bu iş için açılmış bir hesap kullanın |
+| `analyst_enabled`, `analyst_webhook_url` | kapalı | Veri Analiz Ajanı'nın rapor alacağı adres |
+
+### 5) İlk çalıştırma
+
+Birden fazla tetikleyici olduğu için her kolu ayrı çalıştırın: ilgili **Zamanlayıcı** düğümünü seçip ▶ **Execute step** (ya da *Execute workflow* menüsünden o tetikleyiciyi) seçin. Sırayla:
+
+1. **Zamanlayıcı: Piyasa.** İlk çalıştırmada EIA'dan 6 yıllık geçmiş gelir (z-skor ve mevsimsellik için), EPİAŞ açıksa 120 günlük PTF.
+   `SELECT instrument_code, count(*), max(trade_date) FROM energy.prices_daily GROUP BY 1;`
+2. **Zamanlayıcı: Haber.**
+   `SELECT source_code, count(*), count(*) FILTER (WHERE prefilter_ok) AS enerji FROM energy.news_items GROUP BY 1;`
+3. **Zamanlayıcı: Analiz.** Kuyruk bitene kadar birkaç kez çalıştırabilirsiniz.
+   `SELECT event_type, count(*) FROM energy.news_analyses GROUP BY 1;`
+4. **Zamanlayıcı: Rapor.** Öğleden önce sabah bülteni, sonra gün sonu raporu üretir.
+   `SELECT report_type, body->>'summary', body->'data_quality' FROM energy.reports ORDER BY generated_at DESC LIMIT 1;`
+5. Sonuçlar doğruysa workflow'u **Publish** (ya da **Active**) yapın.
+
+Aynı gün aynı tür rapor bir kez üretilir. Test için yeniden üretmek isterseniz: `DELETE FROM energy.reports WHERE dedup_key = 'daily_close:2026-09-27';` (tarihi değiştirin).
+
+### Sorun giderme
+
+| Belirti | Neden / çözüm |
+|---|---|
+| `SELECT * FROM energy.v_source_health WHERE is_failing;` bir kaynak gösteriyor | `last_error` sütununda hata metni var |
+| *EIA API* 403 | Query Auth credential'ında Name tam olarak `api_key` olmalı |
+| *EPİAŞ PTF* 401 | Kullanıcı adı/şifre hatalı ya da hesap Şeffaflık Platformu'na kayıtlı değil |
+| Bir RSS beslemesi 404 | Adres değişmiş olabilir; *RSS Beslemeleri* düğümündeki listeden çıkarın ya da güncelleyin |
+| Raporda `data_quality.notes` içinde "LLM yorumu doğrulamadan geçmedi" | LLM iki denemede de pakette olmayan sayı ya da kanıt kullandı; şablon rapor kaydedildi. *Raporu Birleştir* çıktısındaki `errors` alanına bakın |
+| Hiç haber analiz edilmiyor | `SELECT count(*) FROM energy.story_clusters WHERE needs_analysis AND analysis_attempts >= 3;` sıfırdan büyükse OpenAI yanıtları hatalı; *Sınıflandır (OpenAI)* çıktısına bakın |
+
+Yeni bir kaynak eklemek için önce toplayıcısını workflow'a ekleyin, sonra kaynağı açın: `UPDATE energy.sources SET is_enabled = true WHERE code = '...';`. Kapalı kaynakların serileri rapora girmez ve "bayat" sayılmaz.
+
+## Test
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f energy-agent/test/smoke_test.sql
 pip install jsonschema
 python3 energy-agent/test/validate_report.py energy-agent/contracts/example-morning-brief.json
 ```
-
-Tablolar ayrı bir `energy` şemasında durur; rezervasyon tablolarıyla aynı veritabanında çakışmadan çalışır. Başlık kümelemesi, PostgreSQL ile birlikte gelen `pg_trgm` eklentisini kullanır. Supabase'de de bu eklenti hazırdır.

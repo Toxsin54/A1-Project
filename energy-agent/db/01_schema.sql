@@ -117,8 +117,10 @@ CREATE TABLE IF NOT EXISTS energy.story_clusters (
   item_count    int NOT NULL DEFAULT 1,
   source_count  int NOT NULL DEFAULT 1,
   best_tier     smallint NOT NULL,
-  needs_analysis boolean NOT NULL DEFAULT true       -- yeni küme, daha iyi kaynak ya da belirgin büyüme
+  needs_analysis boolean NOT NULL DEFAULT true,      -- yeni küme, daha iyi kaynak ya da belirgin büyüme
+  analysis_attempts smallint NOT NULL DEFAULT 0      -- başarısız LLM denemesi; 3'te küme atlanır
 );
+ALTER TABLE energy.story_clusters ADD COLUMN IF NOT EXISTS analysis_attempts smallint NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS story_clusters_seen_idx ON energy.story_clusters (last_seen_at DESC);
 CREATE INDEX IF NOT EXISTS story_clusters_headline_trgm ON energy.story_clusters USING gin (headline gin_trgm_ops);
 

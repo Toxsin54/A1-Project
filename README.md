@@ -37,6 +37,7 @@ Müşteri ──telefon──▶ Vapi (STT + LLM + TTS)
 | `db/03_seed.sql` | Antalya test verisi: 6 otel, 20 oda tipi, sezon fiyatları, hazır test rezervasyonları. Kendi verilerinizle değiştirin |
 | `n8n/vapi-reservations-workflow.json` | n8n'e import edilecek workflow (telefon + rezervasyon araçları) |
 | `n8n/messaging-workflow.json` | Mesaj asistanı: WhatsApp, Instagram DM, Facebook Messenger |
+| `n8n/energy-agent-workflow.json` | Enerji haber ve piyasa takip ajanı (kurulum: `energy-agent/README.md`) |
 | `messaging/system-prompt.md` | Mesaj asistanının talimatı |
 | `vapi/system-prompt.md` | Asistanın Türkçe talimatları |
 | `vapi/tools.json` | Vapi araç (tool) tanımları |

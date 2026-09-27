@@ -61,7 +61,9 @@ BEGIN
   SELECT * INTO s FROM energy.fn_snapshot('2026-09-27') WHERE instrument = 'BRENT_SPOT';
   ASSERT s.as_of = '2026-09-25' AND NOT s.is_stale, 'Brent son değeri 25 Eylül olmalı';
   ASSERT s.zscore_1d > 3, format('Brent z-skoru yüksek olmalı: %s', s.zscore_1d);
-  ASSERT (SELECT is_stale FROM energy.fn_snapshot('2026-09-27') WHERE instrument = 'DE_DA_BASE'), 'verisiz seri bayat görünmeli';
+  ASSERT (SELECT is_stale FROM energy.fn_snapshot('2026-09-27') WHERE instrument = 'GASOLINE_NYH_SPOT'), 'verisiz seri bayat görünmeli';
+  ASSERT NOT EXISTS (SELECT 1 FROM energy.fn_snapshot('2026-09-27') WHERE instrument = 'DE_DA_BASE')
+         OR (SELECT is_enabled FROM energy.sources WHERE code = 'entsoe'), 'kaynağı kapalı seri snapshot''a girmemeli';
 
   SELECT * INTO m FROM energy.fn_detect_moves('2026-09-25') WHERE instrument_code = 'BRENT_SPOT';
   ASSERT m.status = 'unexplained', 'ters yönlü haber hareketi açıklamamalı';
@@ -111,6 +113,31 @@ BEGIN
          'aynı dedup_key mevcut raporu döndürmeli';
   ASSERT energy.fn_mark_delivery(rid, false, 'timeout') = 'pending', 'ilk hatada tekrar denenmeli';
   ASSERT energy.fn_mark_delivery(rid, true) = 'delivered', 'başarılı gönderim';
+END $$;
+
+-- n8n giriş fonksiyonları (db/04_ingest.sql)
+DO $$
+DECLARE r jsonb; cid bigint;
+BEGIN
+  r := energy.fn_ingest_news(jsonb_build_array(
+         jsonb_build_object('source','gnews_rss','url','https://example.test/n1','title','Kerkük-Ceyhan boru hattında akış durdu','published_at', now(),'prefilter_ok',true),
+         jsonb_build_object('source','rigzone','url','https://example.test/n2','title','Kerkük-Ceyhan boru hattında akış durdu, fiyatlar yükseldi','published_at', now(),'prefilter_ok',true),
+         jsonb_build_object('source','gnews_rss','url','https://example.test/n1','title','tekrar','published_at', now(),'prefilter_ok',true),
+         jsonb_build_object('source','lng_prime','url','https://example.test/n3','title','kapalı kaynak','published_at', now(),'prefilter_ok',true)),
+       '[{"source":"rigzone","count":1,"error":null},{"source":"eia_news","count":0,"error":"HTTP 503"}]');
+  ASSERT r = '{"inserted": 2, "clustered": 2, "skipped": 1}'::jsonb, format('fn_ingest_news: %s', r);
+  ASSERT (SELECT is_failing FROM energy.v_source_health WHERE code = 'eia_news'), 'hata veren kaynak işaretlenmeli';
+
+  SELECT cluster_id INTO cid FROM energy.fn_clusters_to_analyze(20) WHERE payload->>'headline' LIKE 'Kerkük%';
+  ASSERT cid IS NOT NULL, 'yeni küme analiz listesinde olmalı';
+  ASSERT energy.fn_save_analysis(cid, '{"is_relevant":true,"event_type":"bogus"}', 'm', 'v1') LIKE 'invalid:%', 'geçersiz çıktı reddedilmeli';
+  ASSERT energy.fn_save_analysis(cid, '{"is_relevant":true,"event_type":"supply_outage","segments":["crude"],"regions":["IQ"],"impacts":[{"segment":"crude","instruments":["BRENT_SPOT"],"price_direction":"up","magnitude":2,"horizon":"short","rationale":"r"}],"novelty":"new","is_rumor":false,"confidence":0.8,"summary_tr":"Akış durdu."}', 'm', 'v1') = 'saved', 'geçerli çıktı kaydedilmeli';
+  ASSERT NOT EXISTS (SELECT 1 FROM energy.fn_clusters_to_analyze(20) WHERE cluster_id = cid), 'analiz edilen küme listeden çıkmalı';
+
+  ASSERT energy.fn_upsert_ptf((SELECT jsonb_agg(jsonb_build_object('ts', '2026-09-20T00:00:00+03:00'::timestamptz + make_interval(hours => h), 'value', 2000 + h)) FROM generate_series(0, 23) h)) = 24, 'saatlik PTF';
+  ASSERT energy.fn_price_on('TR_PTF_BASE', '2026-09-20') = 2011.5, 'PTF günlük ortalaması';
+  ASSERT energy.fn_upsert_indicators('[{"indicator":"US_NG_STORAGE","period_end":"2026-09-18","value":3500}]') = 1, 'gösterge';
+  ASSERT (SELECT released_at FROM energy.indicator_values WHERE indicator_code = 'US_NG_STORAGE') = '2026-09-23 14:30+00', 'varsayılan yayın zamanı';
 END $$;
 
 \echo 'smoke test OK'

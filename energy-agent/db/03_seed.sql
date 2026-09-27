@@ -1,36 +1,39 @@
 -- Enerji ajanı: başlangıç kataloğu (kaynaklar, enstrümanlar, türetilmiş metrikler, göstergeler)
 -- Tekrar çalıştırmak güvenlidir: kayıtlar koda göre güncellenir.
 -- Seri kodlarını ve RSS adreslerini kurulumda sağlayıcının güncel dokümantasyonundan doğrulayın.
--- license = 'paid' olan kaynaklar lisans alınana kadar is_enabled = false gelir.
+-- Açık gelen kaynaklar n8n/energy-agent-workflow.json'un bağladıklarıdır (EIA, EPİAŞ, TCMB, EIA/Rigzone RSS,
+-- Google News, GDELT). Diğerleri toplayıcısı eklenince ya da lisans alınınca açılır:
+--   UPDATE energy.sources SET is_enabled = true WHERE code = '...';
+-- Tekrar çalıştırmak is_enabled değerini değiştirmez.
 
 INSERT INTO energy.sources (code, name, kind, access, tier, base_url, license, store_body, poll_interval, is_enabled) VALUES
   -- Piyasa verisi
   ('eia',        'ABD Enerji Bilgi İdaresi (EIA) API v2',           'market_data', 'api',  1, 'https://api.eia.gov/v2/',                      'free-key', false, '6 hours',  true),
   ('epias',      'EPİAŞ Şeffaflık Platformu',                        'market_data', 'api',  1, 'https://seffaflik.epias.com.tr/',              'free-key', false, '1 hour',   true),
-  ('entsoe',     'ENTSO-E Transparency Platform',                    'market_data', 'api',  1, 'https://web-api.tp.entsoe.eu/api',             'free-key', false, '6 hours',  true),
-  ('eex_auction','EEX birincil EUA ihale sonuçları',                 'market_data', 'file', 1, 'https://www.eex.com/',                         'free',     false, '1 day',    true),
+  ('entsoe',     'ENTSO-E Transparency Platform',                    'market_data', 'api',  1, 'https://web-api.tp.entsoe.eu/api',             'free-key', false, '6 hours',  false),
+  ('eex_auction','EEX birincil EUA ihale sonuçları',                 'market_data', 'file', 1, 'https://www.eex.com/',                         'free',     false, '1 day',    false),
   ('tcmb',       'TCMB gösterge döviz kurları',                      'market_data', 'api',  1, 'https://www.tcmb.gov.tr/kurlar/today.xml',     'free',     false, '1 day',    true),
-  ('ecb',        'ECB referans döviz kurları',                       'market_data', 'api',  1, 'https://www.ecb.europa.eu/stats/eurofxref/',   'free',     false, '1 day',    true),
+  ('ecb',        'ECB referans döviz kurları',                       'market_data', 'api',  1, 'https://www.ecb.europa.eu/stats/eurofxref/',   'free',     false, '1 day',    false),
   ('licensed',   'Lisanslı vadeli fiyat sağlayıcısı (ICE/NYMEX/JKM)', 'market_data', 'api',  1, NULL,                                           'paid',     false, '15 minutes', false),
   -- Temel göstergeler
-  ('gie_agsi',   'GIE AGSI+ (AB gaz depolama)',                      'fundamental', 'api',  1, 'https://agsi.gie.eu/api',                      'free-key', false, '12 hours', true),
-  ('cftc',       'CFTC Commitments of Traders',                      'fundamental', 'api',  1, 'https://publicreporting.cftc.gov/',            'free',     false, '1 day',    true),
-  ('baker_hughes','Baker Hughes sondaj kulesi sayısı',                'fundamental', 'file', 1, 'https://rigcount.bakerhughes.com/',            'free',     false, '1 day',    true),
+  ('gie_agsi',   'GIE AGSI+ (AB gaz depolama)',                      'fundamental', 'api',  1, 'https://agsi.gie.eu/api',                      'free-key', false, '12 hours', false),
+  ('cftc',       'CFTC Commitments of Traders',                      'fundamental', 'api',  1, 'https://publicreporting.cftc.gov/',            'free',     false, '1 day',    false),
+  ('baker_hughes','Baker Hughes sondaj kulesi sayısı',                'fundamental', 'file', 1, 'https://rigcount.bakerhughes.com/',            'free',     false, '1 day',    false),
   -- Haber: birincil / resmî (tier 1)
-  ('opec',       'OPEC basın bültenleri',                            'news',        'scrape', 1, 'https://www.opec.org/',                      'free',     false, '30 minutes', true),
-  ('iea',        'IEA haberler',                                     'news',        'rss',  1, 'https://www.iea.org/',                         'free',     false, '30 minutes', true),
+  ('opec',       'OPEC basın bültenleri',                            'news',        'scrape', 1, 'https://www.opec.org/',                      'free',     false, '30 minutes', false),
+  ('iea',        'IEA haberler',                                     'news',        'rss',  1, 'https://www.iea.org/',                         'free',     false, '30 minutes', false),
   ('eia_news',   'EIA Today in Energy / basın',                      'news',        'rss',  1, 'https://www.eia.gov/',                         'free',     true,  '30 minutes', true),
-  ('etkb',       'T.C. Enerji ve Tabii Kaynaklar Bakanlığı',         'news',        'scrape', 1, 'https://enerji.gov.tr/',                     'free',     false, '30 minutes', true),
-  ('epdk',       'EPDK duyuru ve kurul kararları',                   'news',        'scrape', 1, 'https://www.epdk.gov.tr/',                   'free',     false, '30 minutes', true),
-  ('epias_news', 'EPİAŞ duyuruları',                                 'news',        'scrape', 1, 'https://www.epias.com.tr/',                  'free',     false, '30 minutes', true),
-  ('resmi_gazete','Resmî Gazete (enerji ile ilgili kararlar)',        'news',        'scrape', 1, 'https://www.resmigazete.gov.tr/',            'free',     true,  '1 hour',   true),
-  ('ec_energy',  'Avrupa Komisyonu enerji/iklim basın',              'news',        'rss',  1, 'https://ec.europa.eu/commission/presscorner/', 'free',     false, '1 hour',   true),
-  ('nhc',        'ABD Ulusal Kasırga Merkezi (Meksika Körfezi)',     'news',        'rss',  1, 'https://www.nhc.noaa.gov/',                    'free',     true,  '1 hour',   true),
+  ('etkb',       'T.C. Enerji ve Tabii Kaynaklar Bakanlığı',         'news',        'scrape', 1, 'https://enerji.gov.tr/',                     'free',     false, '30 minutes', false),
+  ('epdk',       'EPDK duyuru ve kurul kararları',                   'news',        'scrape', 1, 'https://www.epdk.gov.tr/',                   'free',     false, '30 minutes', false),
+  ('epias_news', 'EPİAŞ duyuruları',                                 'news',        'scrape', 1, 'https://www.epias.com.tr/',                  'free',     false, '30 minutes', false),
+  ('resmi_gazete','Resmî Gazete (enerji ile ilgili kararlar)',        'news',        'scrape', 1, 'https://www.resmigazete.gov.tr/',            'free',     true,  '1 hour',   false),
+  ('ec_energy',  'Avrupa Komisyonu enerji/iklim basın',              'news',        'rss',  1, 'https://ec.europa.eu/commission/presscorner/', 'free',     false, '1 hour',   false),
+  ('nhc',        'ABD Ulusal Kasırga Merkezi (Meksika Körfezi)',     'news',        'rss',  1, 'https://www.nhc.noaa.gov/',                    'free',     true,  '1 hour',   false),
   -- Haber: ajans / uzman yayın (tier 2)
-  ('aa_energy',  'Anadolu Ajansı Enerji',                            'news',        'rss',  2, 'https://www.aa.com.tr/tr/enerji',              'free',     false, '10 minutes', true),
+  ('aa_energy',  'Anadolu Ajansı Enerji',                            'news',        'rss',  2, 'https://www.aa.com.tr/tr/enerji',              'free',     false, '10 minutes', false),
   ('wire_licensed','Lisanslı haber ajansı akışı (Reuters/Bloomberg/Argus/Platts)', 'news', 'api', 2, NULL,                           'paid',     false, '5 minutes', false),
   ('rigzone',    'Rigzone',                                          'news',        'rss',  2, 'https://www.rigzone.com/',                     'free',     false, '15 minutes', true),
-  ('lng_prime',  'LNG Prime',                                        'news',        'rss',  2, 'https://lngprime.com/',                        'free',     false, '30 minutes', true),
+  ('lng_prime',  'LNG Prime',                                        'news',        'rss',  2, 'https://lngprime.com/',                        'free',     false, '30 minutes', false),
   -- Haber: toplayıcılar (tier 3) — geniş kapsama, düşük ağırlık
   ('gdelt',      'GDELT DOC API (enerji sorguları)',                 'news',        'api',  3, 'https://api.gdeltproject.org/api/v2/doc/doc',  'free',     false, '15 minutes', true),
   ('gnews_rss',  'Google News RSS sorguları (TR/EN)',                'news',        'rss',  3, 'https://news.google.com/rss/search',           'free',     false, '15 minutes', true)
@@ -65,7 +68,7 @@ INSERT INTO energy.instruments (code, name, segment, unit, region, exchange, sou
   ('EUA_AUCTION',  'EUA birincil ihale takas fiyatı',      'carbon',           'EUR/t',   'EU',     'EEX',       'eex_auction', NULL,   '5 days',  2.5, 5),
   ('EUA_DEC',      'EUA Aralık vadeli',                   'carbon',           'EUR/t',   'EU',     'ICE Endex', 'licensed', NULL,      '4 days',  2.5, 5),
   -- Döviz (çevrim için; hareket alarmı üretmez)
-  ('EURUSD',       'EUR/USD (ECB referans)',              'fx',               'USD/EUR', 'EU',     NULL,        'ecb',      'USD',     '5 days',  99, NULL),
+  ('EURUSD',       'EUR/USD (TCMB çapraz kur)',           'fx',               'USD/EUR', 'EU',     NULL,        'tcmb',     'EUR/USD', '5 days',  99, NULL),
   ('USDTRY',       'USD/TRY (TCMB döviz alış)',           'fx',               'TRY/USD', 'TR',     NULL,        'tcmb',     'USD',     '5 days',  99, NULL),
   ('EURTRY',       'EUR/TRY (TCMB döviz alış)',           'fx',               'TRY/EUR', 'TR',     NULL,        'tcmb',     'EUR',     '5 days',  99, NULL)
 ON CONFLICT (code) DO UPDATE SET
