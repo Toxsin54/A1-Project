@@ -1,0 +1,65 @@
+-- =====================================================================
+-- A1 Acente Otomasyonu - Veritabanı şeması (PostgreSQL 13+)
+-- =====================================================================
+
+-- Genel ayarlar (firma adı, SMS imzası vb.)
+CREATE TABLE IF NOT EXISTS app_settings (
+    key   text PRIMARY KEY,
+    value text NOT NULL
+);
+
+-- Oda tipleri ve stok (her tipten kaç oda satılabilir)
+CREATE TABLE IF NOT EXISTS room_types (
+    id              serial PRIMARY KEY,
+    code            text        NOT NULL UNIQUE,           -- asistanın kullandığı kısa kod: standart, deluxe, aile, suit
+    name            text        NOT NULL,                  -- müşteriye söylenecek ad
+    description     text,
+    features        text[]      NOT NULL DEFAULT '{}',     -- "deniz manzarası", "balkon" ...
+    aliases         text[]      NOT NULL DEFAULT '{}',     -- müşterinin kullanabileceği eş anlamlılar
+    max_guests      int         NOT NULL CHECK (max_guests > 0),
+    total_rooms     int         NOT NULL CHECK (total_rooms >= 0),
+    price_per_night numeric(12,2) NOT NULL CHECK (price_per_night >= 0),
+    currency        text        NOT NULL DEFAULT 'TL',
+    active          boolean     NOT NULL DEFAULT true,
+    sort_order      int         NOT NULL DEFAULT 0
+);
+
+-- Sezonluk / özel fiyatlar. Bir gece için birden fazla kayıt eşleşirse
+-- priority'si en yüksek olan kullanılır; eşleşme yoksa room_types.price_per_night.
+CREATE TABLE IF NOT EXISTS room_rates (
+    id              serial PRIMARY KEY,
+    room_type_id    int  NOT NULL REFERENCES room_types(id) ON DELETE CASCADE,
+    date_from       date NOT NULL,
+    date_to         date NOT NULL,                         -- dahil
+    price_per_night numeric(12,2) NOT NULL CHECK (price_per_night >= 0),
+    priority        int  NOT NULL DEFAULT 0,
+    label           text,
+    CHECK (date_to >= date_from)
+);
+CREATE INDEX IF NOT EXISTS room_rates_lookup ON room_rates (room_type_id, date_from, date_to);
+
+-- Rezervasyonlar
+CREATE TABLE IF NOT EXISTS reservations (
+    id             bigserial PRIMARY KEY,
+    code           text        NOT NULL UNIQUE,           -- müşteriye verilen 6 haneli numara
+    customer_name  text        NOT NULL,
+    phone          text        NOT NULL,
+    room_type_id   int         NOT NULL REFERENCES room_types(id),
+    guests         int         NOT NULL CHECK (guests > 0),
+    check_in       date        NOT NULL,
+    check_out      date        NOT NULL,
+    nights         int GENERATED ALWAYS AS (check_out - check_in) STORED,
+    total_price    numeric(12,2) NOT NULL,
+    notes          text,
+    status         text        NOT NULL DEFAULT 'confirmed' CHECK (status IN ('confirmed', 'cancelled')),
+    source         text        NOT NULL DEFAULT 'vapi',
+    vapi_call_id   text,
+    created_at     timestamptz NOT NULL DEFAULT now(),
+    updated_at     timestamptz NOT NULL DEFAULT now(),
+    cancelled_at   timestamptz,
+    CHECK (check_out > check_in)
+);
+CREATE INDEX IF NOT EXISTS reservations_active_stay
+    ON reservations (room_type_id, check_in, check_out) WHERE status = 'confirmed';
+CREATE INDEX IF NOT EXISTS reservations_phone
+    ON reservations ((right(regexp_replace(phone, '\D', '', 'g'), 10)));

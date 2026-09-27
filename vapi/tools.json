@@ -1,0 +1,75 @@
+[
+  {
+    "name": "check_availability",
+    "description": "Belirtilen tarihlerde ve kişi sayısında oda müsaitliğini sorgular. İstenen oda tipi müsaitse özellik ve toplam fiyatını, değilse fiyat ve özellikleriyle alternatifleri döndürür. room_type boş bırakılırsa tüm müsait odaları listeler.",
+    "requestStart": "Hemen sistemden kontrol ediyorum, bir saniye lütfen.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "room_type": { "type": "string", "description": "İstenen oda tipi. Önceki sonuçtan gelen kod (standart, deluxe, aile, suit) ya da müşterinin ifadesi (ör. 'deniz manzaralı'). Bilinmiyorsa boş bırak." },
+        "check_in": { "type": "string", "description": "Giriş tarihi, YYYY-AA-GG" },
+        "check_out": { "type": "string", "description": "Çıkış tarihi, YYYY-AA-GG" },
+        "guests": { "type": "integer", "description": "Toplam kişi sayısı" }
+      },
+      "required": ["check_in", "check_out", "guests"]
+    }
+  },
+  {
+    "name": "create_reservation",
+    "description": "Müşteri özeti dinleyip AÇIKÇA onay verdikten sonra rezervasyonu oluşturur ve müşteriye SMS gönderir. Rezervasyon numarasını döndürür.",
+    "requestStart": "Rezervasyonunuzu oluşturuyorum.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "room_type": { "type": "string", "description": "check_availability sonucundaki oda kodu (ör. 'deluxe')" },
+        "customer_name": { "type": "string", "description": "Müşterinin adı soyadı" },
+        "phone": { "type": "string", "description": "SMS gönderilecek cep telefonu. Müşteri arayan numarayı onayladıysa boş bırakılabilir." },
+        "guests": { "type": "integer", "description": "Toplam kişi sayısı" },
+        "check_in": { "type": "string", "description": "Giriş tarihi, YYYY-AA-GG" },
+        "check_out": { "type": "string", "description": "Çıkış tarihi, YYYY-AA-GG" },
+        "notes": { "type": "string", "description": "Özel istekler (erken giriş, bebek yatağı, balayı vb.)" }
+      },
+      "required": ["room_type", "customer_name", "guests", "check_in", "check_out"]
+    }
+  },
+  {
+    "name": "modify_reservation",
+    "description": "Mevcut rezervasyonun tarihlerini ve/veya kişi sayısını değiştirir. Sadece değişen alanları gönder.",
+    "requestStart": "Rezervasyonunuzu güncelliyorum.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "reservation_id": { "type": "string", "description": "6 haneli rezervasyon numarası" },
+        "phone": { "type": "string", "description": "Rezervasyonda kullanılan telefon. Arayan numara ile aynıysa boş bırakılabilir." },
+        "check_in": { "type": "string", "description": "Yeni giriş tarihi, YYYY-AA-GG" },
+        "check_out": { "type": "string", "description": "Yeni çıkış tarihi, YYYY-AA-GG" },
+        "guests": { "type": "integer", "description": "Yeni kişi sayısı" }
+      },
+      "required": ["reservation_id"]
+    }
+  },
+  {
+    "name": "cancel_reservation",
+    "description": "Müşteri iptali onayladıktan sonra rezervasyonu iptal eder ve SMS gönderir.",
+    "requestStart": "İptal işlemini yapıyorum.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "reservation_id": { "type": "string", "description": "6 haneli rezervasyon numarası" },
+        "phone": { "type": "string", "description": "Rezervasyonda kullanılan telefon. Arayan numara ile aynıysa boş bırakılabilir." }
+      },
+      "required": ["reservation_id"]
+    }
+  },
+  {
+    "name": "find_reservation",
+    "description": "Rezervasyon numarasını bilmeyen müşterinin aktif rezervasyonlarını telefon numarasından bulur.",
+    "requestStart": "Rezervasyonlarınıza bakıyorum.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "phone": { "type": "string", "description": "Rezervasyonda kullanılan telefon. Arayan numara ile aynıysa boş bırakılabilir." }
+      }
+    }
+  }
+]

@@ -1,0 +1,567 @@
+-- =====================================================================
+-- A1 Acente Otomasyonu - İş mantığı fonksiyonları
+--
+-- n8n her araç (tool) için tek bir fonksiyon çağırır. Her fonksiyon
+-- tek bir jsonb döner:
+--   ok        : işlem başarılı mı
+--   message   : sesli asistana (Vapi) aktarılacak Türkçe metin
+--   send_sms  : müşteriye SMS gönderilmeli mi
+--   sms_to    : E.164 formatında telefon (+905xxxxxxxxx)
+--   sms_text  : SMS içeriği
+-- Parametreler metin olarak alınır; hatalı tarih/sayı gelirse fonksiyon
+-- hata fırlatmak yerine açıklayıcı bir mesaj döner (asistan takılmasın).
+-- =====================================================================
+
+-- ---------------------------------------------------------------------
+-- Yardımcılar
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION fn_setting(p_key text, p_default text DEFAULT '')
+RETURNS text LANGUAGE sql STABLE AS $$
+    SELECT COALESCE((SELECT value FROM app_settings WHERE key = p_key), p_default);
+$$;
+
+CREATE OR REPLACE FUNCTION fn_today()
+RETURNS date LANGUAGE sql STABLE AS $$
+    SELECT (now() AT TIME ZONE fn_setting('timezone', 'Europe/Istanbul'))::date;
+$$;
+
+CREATE OR REPLACE FUNCTION fn_try_date(p text)
+RETURNS date LANGUAGE plpgsql STABLE AS $$
+BEGIN
+    IF p IS NULL OR btrim(p) = '' THEN RETURN NULL; END IF;
+    IF btrim(p) !~ '^\d{4}-\d{1,2}-\d{1,2}$' THEN RETURN NULL; END IF;
+    RETURN btrim(p)::date;
+EXCEPTION WHEN others THEN
+    RETURN NULL;
+END $$;
+
+CREATE OR REPLACE FUNCTION fn_try_int(p text)
+RETURNS int LANGUAGE plpgsql IMMUTABLE AS $$
+BEGIN
+    IF p IS NULL OR btrim(p) = '' THEN RETURN NULL; END IF;
+    RETURN round(btrim(p)::numeric)::int;
+EXCEPTION WHEN others THEN
+    RETURN NULL;
+END $$;
+
+-- Türkçe karakterleri sadeleştirip küçük harfe çevirir (eşleştirme için)
+CREATE OR REPLACE FUNCTION fn_norm(p text)
+RETURNS text LANGUAGE sql IMMUTABLE AS $$
+    SELECT lower(btrim(translate(COALESCE(p, ''), 'İIıŞşĞğÜüÖöÇçÂâÎîÛû', 'iiissgguuooccaaiiuu')));
+$$;
+
+-- 5 Ekim 2026 Pazartesi
+CREATE OR REPLACE FUNCTION fn_tr_date(d date)
+RETURNS text LANGUAGE sql IMMUTABLE AS $$
+    SELECT extract(day FROM d)::int || ' '
+        || (ARRAY['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz',
+                  'Ağustos','Eylül','Ekim','Kasım','Aralık'])[extract(month FROM d)::int]
+        || ' ' || extract(year FROM d)::int || ' '
+        || (ARRAY['Pazartesi','Salı','Çarşamba','Perşembe','Cuma','Cumartesi','Pazar'])[extract(isodow FROM d)::int];
+$$;
+
+-- 12500 -> "12.500 TL"
+CREATE OR REPLACE FUNCTION fn_money(n numeric, cur text DEFAULT 'TL')
+RETURNS text LANGUAGE sql IMMUTABLE AS $$
+    SELECT replace(to_char(round(n), 'FM999,999,999,990'), ',', '.') || ' ' || cur;
+$$;
+
+-- Telefon karşılaştırma anahtarı: son 10 hane
+CREATE OR REPLACE FUNCTION fn_phone_key(p text)
+RETURNS text LANGUAGE sql IMMUTABLE AS $$
+    SELECT right(regexp_replace(COALESCE(p, ''), '\D', '', 'g'), 10);
+$$;
+
+-- SMS için E.164 (Türkiye varsayılan)
+CREATE OR REPLACE FUNCTION fn_phone_e164(p text)
+RETURNS text LANGUAGE plpgsql IMMUTABLE AS $$
+DECLARE
+    d text := regexp_replace(COALESCE(p, ''), '\D', '', 'g');
+BEGIN
+    IF btrim(COALESCE(p, '')) LIKE '+%' THEN RETURN '+' || d; END IF;
+    IF length(d) = 10 THEN RETURN '+90' || d; END IF;                          -- 5xxxxxxxxx
+    IF length(d) = 11 AND left(d, 1) = '0' THEN RETURN '+90' || substr(d, 2); END IF; -- 05xxxxxxxxx
+    IF left(d, 2) = '00' THEN RETURN '+' || substr(d, 3); END IF;
+    RETURN '+' || d;
+END $$;
+
+-- Müşterinin söylediği oda tipini (kod, ad veya eş anlamlı) eşleştirir
+CREATE OR REPLACE FUNCTION fn_find_room_type(p text)
+RETURNS room_types LANGUAGE sql STABLE AS $$
+    SELECT rt.*
+    FROM room_types rt
+    WHERE rt.active
+      AND fn_norm(p) <> ''
+      AND (   fn_norm(rt.code) = fn_norm(p)
+           OR fn_norm(rt.name) = fn_norm(p)
+           OR EXISTS (SELECT 1 FROM unnest(rt.aliases) a WHERE fn_norm(a) = fn_norm(p))
+           OR fn_norm(rt.name) LIKE '%' || fn_norm(p) || '%'
+           OR EXISTS (SELECT 1 FROM unnest(rt.aliases) a WHERE fn_norm(p) LIKE '%' || fn_norm(a) || '%'))
+    ORDER BY (fn_norm(rt.code) = fn_norm(p) OR fn_norm(rt.name) = fn_norm(p)) DESC,
+             rt.sort_order, rt.id
+    LIMIT 1;
+$$;
+
+-- Konaklama boyunca en dolu gecedeki boş oda sayısı
+CREATE OR REPLACE FUNCTION fn_rooms_left(p_room_type_id int, p_in date, p_out date,
+                                         p_exclude_reservation bigint DEFAULT NULL)
+RETURNS int LANGUAGE sql STABLE AS $$
+    SELECT (SELECT total_rooms FROM room_types WHERE id = p_room_type_id)
+         - COALESCE(max(x.cnt), 0)::int
+    FROM (
+        SELECT n.night, count(r.id) AS cnt
+        FROM generate_series(p_in, p_out - 1, interval '1 day') AS n(night)
+        LEFT JOIN reservations r
+               ON r.room_type_id = p_room_type_id
+              AND r.status = 'confirmed'
+              AND r.check_in <= n.night::date
+              AND r.check_out > n.night::date
+              AND (p_exclude_reservation IS NULL OR r.id <> p_exclude_reservation)
+        GROUP BY n.night
+    ) x;
+$$;
+
+-- Konaklamanın toplam fiyatı (sezon fiyatları dahil)
+CREATE OR REPLACE FUNCTION fn_stay_price(p_room_type_id int, p_in date, p_out date)
+RETURNS numeric LANGUAGE sql STABLE AS $$
+    SELECT COALESCE(sum(
+        COALESCE(
+            (SELECT rr.price_per_night FROM room_rates rr
+              WHERE rr.room_type_id = p_room_type_id
+                AND n.night::date BETWEEN rr.date_from AND rr.date_to
+              ORDER BY rr.priority DESC, rr.id DESC
+              LIMIT 1),
+            rt.price_per_night)), 0)
+    FROM generate_series(p_in, p_out - 1, interval '1 day') AS n(night)
+    CROSS JOIN room_types rt
+    WHERE rt.id = p_room_type_id;
+$$;
+
+-- Ortak tarih doğrulaması. Hata varsa mesajı, yoksa NULL döner.
+CREATE OR REPLACE FUNCTION fn_validate_stay(p_in date, p_out date, p_raw_in text, p_raw_out text)
+RETURNS text LANGUAGE plpgsql STABLE AS $$
+DECLARE
+    v_max_nights int := fn_setting('max_nights', '30')::int;
+BEGIN
+    IF p_in IS NULL OR p_out IS NULL THEN
+        RETURN format('Tarihler anlaşılamadı (giriş: %s, çıkış: %s). Giriş ve çıkış tarihlerini YYYY-AA-GG formatında tekrar gönder.',
+                      COALESCE(NULLIF(p_raw_in, ''), 'yok'), COALESCE(NULLIF(p_raw_out, ''), 'yok'));
+    END IF;
+    IF p_out <= p_in THEN
+        RETURN 'Çıkış tarihi giriş tarihinden sonra olmalı. Müşteriden tarihleri teyit et.';
+    END IF;
+    IF p_in < fn_today() THEN
+        RETURN format('Giriş tarihi (%s) geçmiş bir tarih. Bugün %s. Müşteriden tarihi teyit et.',
+                      fn_tr_date(p_in), fn_tr_date(fn_today()));
+    END IF;
+    IF p_out - p_in > v_max_nights THEN
+        RETURN format('Telefonla en fazla %s gecelik rezervasyon alınabiliyor. Daha uzun konaklamalar için müşteriyi rezervasyon ekibine yönlendir.', v_max_nights);
+    END IF;
+    RETURN NULL;
+END $$;
+
+-- Rezervasyon özeti (asistan ve SMS için ortak)
+CREATE OR REPLACE FUNCTION fn_reservation_summary(r reservations)
+RETURNS text LANGUAGE sql STABLE AS $$
+    SELECT format('%s | Giriş: %s | Çıkış: %s (%s gece) | %s kişi | Toplam: %s',
+                  rt.name, fn_tr_date(r.check_in), fn_tr_date(r.check_out), r.nights,
+                  r.guests, fn_money(r.total_price, rt.currency))
+    FROM room_types rt WHERE rt.id = r.room_type_id;
+$$;
+
+CREATE OR REPLACE FUNCTION fn_new_reservation_code()
+RETURNS text LANGUAGE plpgsql VOLATILE AS $$
+DECLARE
+    v_code text;
+BEGIN
+    LOOP
+        v_code := lpad((100000 + floor(random() * 900000))::int::text, 6, '0');
+        EXIT WHEN NOT EXISTS (SELECT 1 FROM reservations WHERE code = v_code);
+    END LOOP;
+    RETURN v_code;
+END $$;
+
+-- Rezervasyon numarasını sesli okunabilir yapar: 482913 -> "4 8 2 9 1 3"
+CREATE OR REPLACE FUNCTION fn_spell(p text)
+RETURNS text LANGUAGE sql IMMUTABLE AS $$
+    SELECT array_to_string(regexp_split_to_array(p, ''), ' ');
+$$;
+
+
+-- =====================================================================
+-- TOOL: check_availability
+-- =====================================================================
+CREATE OR REPLACE FUNCTION fn_check_availability(p_room_type text, p_check_in text,
+                                                 p_check_out text, p_guests text)
+RETURNS jsonb LANGUAGE plpgsql STABLE AS $$
+DECLARE
+    v_in      date := fn_try_date(p_check_in);
+    v_out     date := fn_try_date(p_check_out);
+    v_guests  int  := fn_try_int(p_guests);
+    v_err     text;
+    v_req     room_types;
+    v_req_opt jsonb;
+    v_options jsonb;
+    v_alts    jsonb;
+    v_msg     text;
+    v_reason  text;
+    v_nights  int;
+    v_stay    text;
+    o         jsonb;
+    i         int := 0;
+BEGIN
+    v_err := fn_validate_stay(v_in, v_out, p_check_in, p_check_out);
+    IF v_err IS NOT NULL THEN
+        RETURN jsonb_build_object('ok', false, 'message', v_err, 'send_sms', false);
+    END IF;
+    IF v_guests IS NOT NULL AND v_guests < 1 THEN
+        RETURN jsonb_build_object('ok', false, 'send_sms', false,
+                                  'message', 'Kişi sayısı en az 1 olmalı. Müşteriden kişi sayısını öğren.');
+    END IF;
+
+    v_nights := v_out - v_in;
+    v_stay   := format('%s - %s (%s gece%s)', fn_tr_date(v_in), fn_tr_date(v_out), v_nights,
+                       CASE WHEN v_guests IS NOT NULL THEN ', ' || v_guests || ' kişi' ELSE '' END);
+
+    -- Tüm aktif oda tiplerinin durumu
+    SELECT COALESCE(jsonb_agg(t ORDER BY t.total_price, t.sort_order), '[]'::jsonb)
+      INTO v_options
+    FROM (
+        SELECT rt.code, rt.name, rt.description, rt.features, rt.max_guests, rt.sort_order,
+               rt.currency,
+               fn_rooms_left(rt.id, v_in, v_out)                 AS rooms_left,
+               fn_stay_price(rt.id, v_in, v_out)                  AS total_price,
+               round(fn_stay_price(rt.id, v_in, v_out) / v_nights) AS avg_nightly,
+               (v_guests IS NULL OR rt.max_guests >= v_guests)    AS fits_guests
+        FROM room_types rt
+        WHERE rt.active
+    ) t;
+
+    IF COALESCE(btrim(p_room_type), '') <> '' THEN
+        v_req := fn_find_room_type(p_room_type);
+    END IF;
+
+    IF v_req.id IS NOT NULL THEN
+        SELECT e INTO v_req_opt FROM jsonb_array_elements(v_options) e WHERE e->>'code' = v_req.code;
+
+        IF (v_req_opt->>'rooms_left')::int > 0 AND (v_req_opt->>'fits_guests')::boolean THEN
+            v_msg := format(
+                'MÜSAİT. %s, %s için müsait (kalan oda: %s). Toplam fiyat: %s (gecelik ortalama %s). '
+                'En fazla %s kişi. Özellikler: %s. %s '
+                'Müşteriye özellikleri ve fiyatı aktar; onay verirse ad-soyad ve telefonu alıp create_reservation aracını room_type="%s" ile çağır.',
+                v_req.name, v_stay, v_req_opt->>'rooms_left',
+                fn_money((v_req_opt->>'total_price')::numeric, v_req.currency),
+                fn_money((v_req_opt->>'avg_nightly')::numeric, v_req.currency),
+                v_req.max_guests, array_to_string(v_req.features, ', '),
+                COALESCE(v_req.description, ''), v_req.code);
+            RETURN jsonb_build_object('ok', true, 'available', true, 'send_sms', false,
+                                      'message', v_msg, 'requested', v_req_opt);
+        END IF;
+
+        v_reason := CASE
+            WHEN NOT (v_req_opt->>'fits_guests')::boolean
+                THEN format('%s en fazla %s kişi alıyor, %s kişi için uygun değil.', v_req.name, v_req.max_guests, v_guests)
+            ELSE format('%s, %s için DOLU.', v_req.name, v_stay)
+        END;
+    ELSIF COALESCE(btrim(p_room_type), '') <> '' THEN
+        v_reason := format('"%s" adında bir oda tipimiz yok.', p_room_type);
+    END IF;
+
+    -- Alternatifler: müsait + kişi sayısına uygun, fiyata göre sıralı, en fazla 3
+    SELECT COALESCE(jsonb_agg(e ORDER BY (e->>'total_price')::numeric), '[]'::jsonb)
+      INTO v_alts
+    FROM (
+        SELECT e FROM jsonb_array_elements(v_options) e
+        WHERE (e->>'rooms_left')::int > 0
+          AND (e->>'fits_guests')::boolean
+          AND e->>'code' IS DISTINCT FROM v_req.code
+        ORDER BY (e->>'total_price')::numeric
+        LIMIT 3
+    ) s;
+
+    IF jsonb_array_length(v_alts) = 0 THEN
+        v_msg := COALESCE(v_reason || ' ', '')
+              || format('%s için uygun boş oda bulunmuyor. Müşteriye farklı tarih önerebilirsin.', v_stay);
+        RETURN jsonb_build_object('ok', true, 'available', false, 'send_sms', false,
+                                  'message', v_msg, 'alternatives', v_alts);
+    END IF;
+
+    v_msg := CASE WHEN v_reason IS NOT NULL
+                  THEN v_reason || ' ALTERNATİFLER (' || v_stay || '): '
+                  ELSE 'MÜSAİT ODALAR (' || v_stay || '): ' END;
+    FOR o IN SELECT * FROM jsonb_array_elements(v_alts) LOOP
+        i := i + 1;
+        v_msg := v_msg || format('%s) %s [room_type="%s"] - en fazla %s kişi - toplam %s (gecelik ortalama %s) - kalan oda %s - özellikler: %s. ',
+            i, o->>'name', o->>'code', o->>'max_guests',
+            fn_money((o->>'total_price')::numeric, o->>'currency'),
+            fn_money((o->>'avg_nightly')::numeric, o->>'currency'),
+            o->>'rooms_left',
+            (SELECT string_agg(f, ', ') FROM jsonb_array_elements_text(o->'features') f));
+    END LOOP;
+    v_msg := v_msg || 'Seçenekleri fiyat ve özellikleriyle müşteriye sun; birini onaylarsa create_reservation aracını ilgili room_type ile çağır.';
+
+    RETURN jsonb_build_object('ok', true, 'available', v_reason IS NULL, 'send_sms', false,
+                              'message', v_msg, 'alternatives', v_alts);
+END $$;
+
+
+-- =====================================================================
+-- TOOL: create_reservation
+-- =====================================================================
+CREATE OR REPLACE FUNCTION fn_create_reservation(p_room_type text, p_customer_name text, p_phone text,
+                                                 p_guests text, p_check_in text, p_check_out text,
+                                                 p_notes text DEFAULT NULL, p_call_id text DEFAULT NULL)
+RETURNS jsonb LANGUAGE plpgsql VOLATILE AS $$
+DECLARE
+    v_in     date := fn_try_date(p_check_in);
+    v_out    date := fn_try_date(p_check_out);
+    v_guests int  := fn_try_int(p_guests);
+    v_name   text := btrim(COALESCE(p_customer_name, ''));
+    v_err    text;
+    v_rt     room_types;
+    v_left   int;
+    v_res    reservations;
+    v_sum    text;
+BEGIN
+    IF v_name = '' THEN
+        RETURN jsonb_build_object('ok', false, 'send_sms', false,
+                                  'message', 'Müşterinin adı soyadı eksik. Ad soyadı sorup tekrar dene.');
+    END IF;
+    IF length(fn_phone_key(p_phone)) < 10 THEN
+        RETURN jsonb_build_object('ok', false, 'send_sms', false,
+                                  'message', 'Geçerli bir cep telefonu numarası gerekli (SMS gönderilecek). Müşteriden numarasını iste.');
+    END IF;
+    IF v_guests IS NULL OR v_guests < 1 THEN
+        RETURN jsonb_build_object('ok', false, 'send_sms', false,
+                                  'message', 'Kişi sayısı eksik ya da geçersiz. Müşteriden kişi sayısını öğren.');
+    END IF;
+    v_err := fn_validate_stay(v_in, v_out, p_check_in, p_check_out);
+    IF v_err IS NOT NULL THEN
+        RETURN jsonb_build_object('ok', false, 'message', v_err, 'send_sms', false);
+    END IF;
+
+    v_rt := fn_find_room_type(p_room_type);
+    IF v_rt.id IS NULL THEN
+        RETURN jsonb_build_object('ok', false, 'send_sms', false,
+                                  'message', format('"%s" oda tipi bulunamadı. Önce check_availability ile uygun oda tipini belirle.', COALESCE(p_room_type, '')));
+    END IF;
+    IF v_rt.max_guests < v_guests THEN
+        RETURN jsonb_build_object('ok', false, 'send_sms', false,
+                                  'message', format('%s en fazla %s kişi alıyor; %s kişi için uygun değil. check_availability ile alternatif bul.', v_rt.name, v_rt.max_guests, v_guests));
+    END IF;
+
+    -- Aynı oda tipine eşzamanlı rezervasyonları sıraya sok (overbooking önlemi)
+    PERFORM 1 FROM room_types WHERE id = v_rt.id FOR UPDATE;
+
+    -- Aynı çağrıda asistan aracı iki kez çağırırsa mükerrer kayıt açma
+    SELECT * INTO v_res FROM reservations r
+    WHERE r.status = 'confirmed'
+      AND r.room_type_id = v_rt.id
+      AND r.check_in = v_in AND r.check_out = v_out
+      AND fn_phone_key(r.phone) = fn_phone_key(p_phone)
+      AND r.created_at > now() - interval '15 minutes'
+    ORDER BY r.id DESC LIMIT 1;
+    IF v_res.id IS NOT NULL THEN
+        RETURN jsonb_build_object('ok', true, 'duplicate', true, 'send_sms', false,
+            'reservation_code', v_res.code,
+            'message', format('Bu rezervasyon zaten oluşturulmuş. Rezervasyon numarası: %s (%s). %s. SMS daha önce gönderildi.',
+                              v_res.code, fn_spell(v_res.code), fn_reservation_summary(v_res)));
+    END IF;
+
+    v_left := fn_rooms_left(v_rt.id, v_in, v_out);
+    IF v_left <= 0 THEN
+        RETURN jsonb_build_object('ok', false, 'send_sms', false,
+            'message', format('Üzgünüz, %s bu tarihlerde az önce doldu. check_availability ile alternatifleri kontrol et.', v_rt.name));
+    END IF;
+
+    INSERT INTO reservations (code, customer_name, phone, room_type_id, guests, check_in, check_out,
+                              total_price, notes, vapi_call_id)
+    VALUES (fn_new_reservation_code(), v_name, btrim(p_phone), v_rt.id, v_guests, v_in, v_out,
+            fn_stay_price(v_rt.id, v_in, v_out), NULLIF(btrim(COALESCE(p_notes, '')), ''),
+            NULLIF(p_call_id, ''))
+    RETURNING * INTO v_res;
+
+    v_sum := fn_reservation_summary(v_res);
+    RETURN jsonb_build_object(
+        'ok', true,
+        'reservation_code', v_res.code,
+        'reservation_id', v_res.id,
+        'message', format('Rezervasyon oluşturuldu ve onaylandı. Rezervasyon numarası: %s (müşteriye tek tek oku: %s). %s. Rezervasyon detayları %s numarasına SMS ile gönderiliyor.',
+                          v_res.code, fn_spell(v_res.code), v_sum, v_res.phone),
+        'send_sms', true,
+        'sms_to', fn_phone_e164(v_res.phone),
+        'sms_text', format('Sayın %s, rezervasyonunuz onaylandı. Rez. No: %s | %s. %s',
+                           v_res.customer_name, v_res.code, v_sum, fn_setting('sms_signature', '')));
+END $$;
+
+
+-- =====================================================================
+-- TOOL: modify_reservation (tarih ve/veya kişi sayısı)
+-- =====================================================================
+CREATE OR REPLACE FUNCTION fn_modify_reservation(p_code text, p_phone text, p_check_in text,
+                                                 p_check_out text, p_guests text)
+RETURNS jsonb LANGUAGE plpgsql VOLATILE AS $$
+DECLARE
+    v_code   text := regexp_replace(COALESCE(p_code, ''), '\D', '', 'g');
+    v_res    reservations;
+    v_old    reservations;
+    v_rt     room_types;
+    v_in     date;
+    v_out    date;
+    v_guests int;
+    v_err    text;
+    v_diff   numeric;
+    v_sum    text;
+BEGIN
+    SELECT * INTO v_res FROM reservations WHERE code = v_code FOR UPDATE;
+    IF v_res.id IS NULL OR fn_phone_key(v_res.phone) <> fn_phone_key(p_phone) THEN
+        RETURN jsonb_build_object('ok', false, 'send_sms', false,
+            'message', format('%s numaralı ve bu telefona kayıtlı bir rezervasyon bulunamadı. Numarayı ve rezervasyonda kullanılan telefonu teyit et.', COALESCE(NULLIF(v_code, ''), '(boş)')));
+    END IF;
+    IF v_res.status <> 'confirmed' THEN
+        RETURN jsonb_build_object('ok', false, 'send_sms', false,
+            'message', format('%s numaralı rezervasyon iptal edilmiş, değiştirilemez. İsterse yeni rezervasyon oluşturulabilir.', v_res.code));
+    END IF;
+    IF v_res.check_out <= fn_today() THEN
+        RETURN jsonb_build_object('ok', false, 'send_sms', false,
+            'message', 'Bu rezervasyonun konaklaması tamamlanmış, değiştirilemez.');
+    END IF;
+
+    v_old    := v_res;
+    v_in     := COALESCE(fn_try_date(p_check_in), v_res.check_in);
+    -- Sadece giriş tarihi değiştiyse gece sayısını koru
+    v_out    := COALESCE(fn_try_date(p_check_out),
+                         CASE WHEN fn_try_date(p_check_in) IS NOT NULL
+                              THEN v_in + v_res.nights ELSE v_res.check_out END);
+    v_guests := COALESCE(fn_try_int(p_guests), v_res.guests);
+
+    IF (NULLIF(btrim(COALESCE(p_check_in, '')), '') IS NOT NULL AND fn_try_date(p_check_in) IS NULL)
+       OR (NULLIF(btrim(COALESCE(p_check_out, '')), '') IS NOT NULL AND fn_try_date(p_check_out) IS NULL) THEN
+        RETURN jsonb_build_object('ok', false, 'send_sms', false,
+            'message', 'Yeni tarihler anlaşılamadı. YYYY-AA-GG formatında tekrar gönder.');
+    END IF;
+    IF v_in = v_res.check_in AND v_out = v_res.check_out AND v_guests = v_res.guests THEN
+        RETURN jsonb_build_object('ok', false, 'send_sms', false,
+            'message', 'Değiştirilecek bir bilgi gelmedi. Müşteriden yeni tarihleri ve/veya kişi sayısını öğren. Mevcut rezervasyon: ' || fn_reservation_summary(v_res));
+    END IF;
+    IF v_guests < 1 THEN
+        RETURN jsonb_build_object('ok', false, 'send_sms', false, 'message', 'Kişi sayısı en az 1 olmalı.');
+    END IF;
+    IF v_in <> v_res.check_in OR v_out <> v_res.check_out THEN
+        v_err := fn_validate_stay(v_in, v_out, v_in::text, v_out::text);
+        IF v_err IS NOT NULL THEN
+            RETURN jsonb_build_object('ok', false, 'message', v_err, 'send_sms', false);
+        END IF;
+    END IF;
+
+    SELECT * INTO v_rt FROM room_types WHERE id = v_res.room_type_id FOR UPDATE;
+    IF v_rt.max_guests < v_guests THEN
+        RETURN jsonb_build_object('ok', false, 'send_sms', false,
+            'message', format('%s en fazla %s kişi alıyor. %s kişi için oda tipi değişmeli: mevcut rezervasyonu iptal edip check_availability ile uygun odayı bulup yeni rezervasyon oluşturmayı öner.', v_rt.name, v_rt.max_guests, v_guests));
+    END IF;
+    IF fn_rooms_left(v_rt.id, v_in, v_out, v_res.id) <= 0 THEN
+        RETURN jsonb_build_object('ok', false, 'send_sms', false,
+            'message', format('%s, %s - %s arasında dolu; değişiklik yapılamadı. Mevcut rezervasyon aynen geçerli. İstersen check_availability ile başka tarih/oda bak.', v_rt.name, fn_tr_date(v_in), fn_tr_date(v_out)));
+    END IF;
+
+    UPDATE reservations
+       SET check_in = v_in, check_out = v_out, guests = v_guests,
+           total_price = fn_stay_price(v_rt.id, v_in, v_out), updated_at = now()
+     WHERE id = v_res.id
+    RETURNING * INTO v_res;
+
+    v_diff := v_res.total_price - v_old.total_price;
+    v_sum  := fn_reservation_summary(v_res);
+    RETURN jsonb_build_object(
+        'ok', true,
+        'reservation_code', v_res.code,
+        'message', format('Rezervasyon güncellendi. Yeni bilgiler: %s. %s Güncel bilgiler SMS ile gönderiliyor.',
+                          v_sum,
+                          CASE WHEN v_diff > 0 THEN 'Fiyat farkı: ' || fn_money(v_diff, v_rt.currency) || ' artış.'
+                               WHEN v_diff < 0 THEN 'Fiyat farkı: ' || fn_money(-v_diff, v_rt.currency) || ' azalış.'
+                               ELSE 'Toplam fiyat değişmedi.' END),
+        'send_sms', true,
+        'sms_to', fn_phone_e164(v_res.phone),
+        'sms_text', format('Sayın %s, %s numaralı rezervasyonunuz güncellendi: %s. %s',
+                           v_res.customer_name, v_res.code, v_sum, fn_setting('sms_signature', '')));
+END $$;
+
+
+-- =====================================================================
+-- TOOL: cancel_reservation
+-- =====================================================================
+CREATE OR REPLACE FUNCTION fn_cancel_reservation(p_code text, p_phone text)
+RETURNS jsonb LANGUAGE plpgsql VOLATILE AS $$
+DECLARE
+    v_code text := regexp_replace(COALESCE(p_code, ''), '\D', '', 'g');
+    v_res  reservations;
+BEGIN
+    SELECT * INTO v_res FROM reservations WHERE code = v_code FOR UPDATE;
+    IF v_res.id IS NULL OR fn_phone_key(v_res.phone) <> fn_phone_key(p_phone) THEN
+        RETURN jsonb_build_object('ok', false, 'send_sms', false,
+            'message', format('%s numaralı ve bu telefona kayıtlı bir rezervasyon bulunamadı. Numarayı ve rezervasyonda kullanılan telefonu teyit et.', COALESCE(NULLIF(v_code, ''), '(boş)')));
+    END IF;
+    IF v_res.status <> 'confirmed' THEN
+        RETURN jsonb_build_object('ok', false, 'send_sms', false,
+            'message', format('%s numaralı rezervasyon zaten iptal edilmiş; aktif bir rezervasyon yok.', v_res.code));
+    END IF;
+    IF v_res.check_out <= fn_today() THEN
+        RETURN jsonb_build_object('ok', false, 'send_sms', false,
+            'message', 'Bu rezervasyonun konaklaması tamamlanmış, iptal edilemez.');
+    END IF;
+
+    UPDATE reservations SET status = 'cancelled', cancelled_at = now(), updated_at = now()
+     WHERE id = v_res.id
+    RETURNING * INTO v_res;
+
+    RETURN jsonb_build_object(
+        'ok', true,
+        'reservation_code', v_res.code,
+        'message', format('%s numaralı rezervasyon iptal edildi (%s). İptal bilgisi SMS ile gönderiliyor.',
+                          v_res.code, fn_reservation_summary(v_res)),
+        'send_sms', true,
+        'sms_to', fn_phone_e164(v_res.phone),
+        'sms_text', format('Sayın %s, %s numaralı rezervasyonunuz iptal edilmiştir (%s). %s',
+                           v_res.customer_name, v_res.code, fn_reservation_summary(v_res),
+                           fn_setting('sms_signature', '')));
+END $$;
+
+
+-- =====================================================================
+-- TOOL: find_reservation (numarasını unutan müşteri için telefonla arama)
+-- =====================================================================
+CREATE OR REPLACE FUNCTION fn_find_reservation(p_phone text)
+RETURNS jsonb LANGUAGE plpgsql STABLE AS $$
+DECLARE
+    v_list jsonb;
+    v_msg  text;
+    r      reservations;
+BEGIN
+    IF length(fn_phone_key(p_phone)) < 10 THEN
+        RETURN jsonb_build_object('ok', false, 'send_sms', false,
+            'message', 'Arama için rezervasyonda kullanılan telefon numarası gerekli.');
+    END IF;
+
+    SELECT COALESCE(jsonb_agg(jsonb_build_object('code', x.code, 'check_in', x.check_in,
+                                                 'check_out', x.check_out) ORDER BY x.check_in), '[]')
+      INTO v_list
+    FROM reservations x
+    WHERE fn_phone_key(x.phone) = fn_phone_key(p_phone)
+      AND x.status = 'confirmed' AND x.check_out > fn_today();
+
+    IF jsonb_array_length(v_list) = 0 THEN
+        RETURN jsonb_build_object('ok', true, 'send_sms', false, 'reservations', v_list,
+            'message', 'Bu telefona kayıtlı aktif (gelecek tarihli) rezervasyon bulunamadı.');
+    END IF;
+
+    v_msg := 'Bu telefona kayıtlı aktif rezervasyonlar: ';
+    FOR r IN SELECT * FROM reservations x
+             WHERE fn_phone_key(x.phone) = fn_phone_key(p_phone)
+               AND x.status = 'confirmed' AND x.check_out > fn_today()
+             ORDER BY x.check_in
+    LOOP
+        v_msg := v_msg || format('[No: %s (%s) - %s adına - %s] ', r.code, fn_spell(r.code),
+                                 r.customer_name, fn_reservation_summary(r));
+    END LOOP;
+    RETURN jsonb_build_object('ok', true, 'send_sms', false, 'reservations', v_list, 'message', v_msg);
+END $$;

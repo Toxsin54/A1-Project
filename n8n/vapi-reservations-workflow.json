@@ -1,0 +1,657 @@
+{
+  "name": "A1 - Vapi Rezervasyon Asistanı",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "vapi/reservations",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "706c3bad-b684-5f5c-81d4-e964ea9817b9",
+      "name": "Vapi Tool Call",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        400
+      ],
+      "webhookId": "69fdbaae-19fe-5eb2-a1a5-1417cb54543d"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "078e73b6-f3a2-5d54-8b6d-0d41d902908c",
+              "name": "tool_call_id",
+              "type": "string",
+              "value": "={{ $json.body.message.toolCallList?.[0]?.id ?? '' }}"
+            },
+            {
+              "id": "2d640795-b01a-55f0-92e4-946ca333db18",
+              "name": "tool_name",
+              "type": "string",
+              "value": "={{ $json.body.message.toolCallList?.[0]?.function?.name ?? '' }}"
+            },
+            {
+              "id": "36071c0e-7f95-571e-b735-a36fa671a6f2",
+              "name": "args",
+              "type": "object",
+              "value": "={{ (a => typeof a === 'string' ? (a ? JSON.parse(a) : {}) : (a ?? {}))((Object.entries($json.body.message.toolCallList?.[0]?.function ?? {}).find(e => e[0].startsWith('arg')) ?? [])[1]) }}"
+            },
+            {
+              "id": "14a6dfd3-ffee-5e1c-84de-5739ffff2ac3",
+              "name": "caller_phone",
+              "type": "string",
+              "value": "={{ $json.body.message.call?.customer?.number ?? $json.body.message.customer?.number ?? '' }}"
+            },
+            {
+              "id": "a922ebdf-d3a7-5322-afe7-bdb410b286d5",
+              "name": "call_id",
+              "type": "string",
+              "value": "={{ $json.body.message.call?.id ?? '' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "53668190-a2a3-5440-829e-2aaca21ceb37",
+      "name": "Extract Tool Call",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "67a4918d-32bb-50d1-a786-d570f5efd8e8",
+                    "leftValue": "={{ $json.tool_name }}",
+                    "rightValue": "check_availability",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "check_availability"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "3260567d-aba8-594e-bb75-f92382e01cbb",
+                    "leftValue": "={{ $json.tool_name }}",
+                    "rightValue": "create_reservation",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "create_reservation"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "23222dca-ee1d-54ba-8a04-01401e13e86a",
+                    "leftValue": "={{ $json.tool_name }}",
+                    "rightValue": "modify_reservation",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "modify_reservation"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "13fe33c9-8b5d-5f98-9e18-d9df55c45f95",
+                    "leftValue": "={{ $json.tool_name }}",
+                    "rightValue": "cancel_reservation",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "cancel_reservation"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "e31ac397-7678-5444-a3fb-e3370f6682e2",
+                    "leftValue": "={{ $json.tool_name }}",
+                    "rightValue": "find_reservation",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "find_reservation"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallback": "Unknown"
+        }
+      },
+      "id": "d478eefd-506d-51a4-b855-83c81533b1fd",
+      "name": "Route Tool",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        440,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT fn_check_availability($1, $2, $3, $4) AS result;",
+        "options": {
+          "queryReplacement": "={{ [String($json.args.room_type ?? ''), String($json.args.check_in ?? ''), String($json.args.check_out ?? ''), String($json.args.guests ?? '')] }}"
+        }
+      },
+      "id": "201a8447-752a-5c63-b2a5-a5af3c1c6caf",
+      "name": "Query Availability",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        720,
+        0
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "A1 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ results: [{ toolCallId: $('Extract Tool Call').first().json.tool_call_id, result: $json.result?.message ?? \"Sistemde geçici bir sorun oluştu. Müşteriden özür dile, işlemi şu an tamamlayamadığını ve ekibin kendisine geri dönüş yapacağını söyle.\" }] }) }}",
+        "options": {}
+      },
+      "id": "382547a0-aaa7-547b-9af4-32e5e3fbc2ec",
+      "name": "Respond Availability",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        960,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT fn_create_reservation($1, $2, $3, $4, $5, $6, $7, $8) AS result;",
+        "options": {
+          "queryReplacement": "={{ [String($json.args.room_type ?? ''), String($json.args.customer_name ?? ''), String($json.args.phone || $json.caller_phone || ''), String($json.args.guests ?? ''), String($json.args.check_in ?? ''), String($json.args.check_out ?? ''), String($json.args.notes ?? ''), $json.call_id] }}"
+        }
+      },
+      "id": "cdd127a9-9357-550b-8e79-2acb5a445b22",
+      "name": "Create Reservation",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        720,
+        200
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "A1 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ results: [{ toolCallId: $('Extract Tool Call').first().json.tool_call_id, result: $json.result?.message ?? \"Sistemde geçici bir sorun oluştu. Müşteriden özür dile, işlemi şu an tamamlayamadığını ve ekibin kendisine geri dönüş yapacağını söyle.\" }] }) }}",
+        "options": {}
+      },
+      "id": "0f466ec2-16fc-5025-b0cc-6c1b7e5c6ff0",
+      "name": "Respond Create",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        960,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT fn_modify_reservation($1, $2, $3, $4, $5) AS result;",
+        "options": {
+          "queryReplacement": "={{ [String($json.args.reservation_id ?? ''), String($json.args.phone || $json.caller_phone || ''), String($json.args.check_in ?? ''), String($json.args.check_out ?? ''), String($json.args.guests ?? '')] }}"
+        }
+      },
+      "id": "b499897a-6eb2-5d14-b652-5ce76510e096",
+      "name": "Modify Reservation",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        720,
+        400
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "A1 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ results: [{ toolCallId: $('Extract Tool Call').first().json.tool_call_id, result: $json.result?.message ?? \"Sistemde geçici bir sorun oluştu. Müşteriden özür dile, işlemi şu an tamamlayamadığını ve ekibin kendisine geri dönüş yapacağını söyle.\" }] }) }}",
+        "options": {}
+      },
+      "id": "40f7f895-4d03-5bf7-8e98-7ef22ad44fcf",
+      "name": "Respond Modify",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        960,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT fn_cancel_reservation($1, $2) AS result;",
+        "options": {
+          "queryReplacement": "={{ [String($json.args.reservation_id ?? ''), String($json.args.phone || $json.caller_phone || '')] }}"
+        }
+      },
+      "id": "fc186dc4-5cce-5e64-ab1b-15b7ed8c434a",
+      "name": "Cancel Reservation",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        720,
+        600
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "A1 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ results: [{ toolCallId: $('Extract Tool Call').first().json.tool_call_id, result: $json.result?.message ?? \"Sistemde geçici bir sorun oluştu. Müşteriden özür dile, işlemi şu an tamamlayamadığını ve ekibin kendisine geri dönüş yapacağını söyle.\" }] }) }}",
+        "options": {}
+      },
+      "id": "d89467d9-4564-5f6b-a41f-1bebf57db961",
+      "name": "Respond Cancel",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        960,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT fn_find_reservation($1) AS result;",
+        "options": {
+          "queryReplacement": "={{ [String($json.args.phone || $json.caller_phone || '')] }}"
+        }
+      },
+      "id": "56ce6acc-41ed-5550-909d-c2ec58d4371f",
+      "name": "Find Reservation",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        720,
+        800
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "A1 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ results: [{ toolCallId: $('Extract Tool Call').first().json.tool_call_id, result: $json.result?.message ?? \"Sistemde geçici bir sorun oluştu. Müşteriden özür dile, işlemi şu an tamamlayamadığını ve ekibin kendisine geri dönüş yapacağını söyle.\" }] }) }}",
+        "options": {}
+      },
+      "id": "90849c5f-85fa-5114-9d26-88ff9148dcfd",
+      "name": "Respond Find",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        960,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ results: [{ toolCallId: $('Extract Tool Call').first().json.tool_call_id, result: 'Bilinmeyen işlem: ' + ($('Extract Tool Call').first().json.tool_name || '(boş)') + '. Kullanılabilir araçlar: check_availability, create_reservation, modify_reservation, cancel_reservation, find_reservation.' }] }) }}",
+        "options": {}
+      },
+      "id": "7187a0ab-123d-5666-be02-2967e606a7f7",
+      "name": "Respond Unknown",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        960,
+        1000
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6f31a552-0797-5aba-b386-e5368d13c438",
+              "leftValue": "={{ $json.result?.send_sms === true && !!$json.result?.sms_to }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "4e37dc9f-2a09-5e08-9f51-cc45dcbe6809",
+      "name": "Should Send SMS?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "from": "+10000000000",
+        "to": "={{ $json.result.sms_to }}",
+        "message": "={{ $json.result.sms_text }}",
+        "options": {}
+      },
+      "id": "208e2715-0b0e-501e-950f-3085e23a1b10",
+      "name": "Send SMS",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [
+        1440,
+        300
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "twilioApi": {
+          "id": "REPLACE_ME",
+          "name": "Twilio"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Vapi Tool Call": {
+      "main": [
+        [
+          {
+            "node": "Extract Tool Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Tool Call": {
+      "main": [
+        [
+          {
+            "node": "Route Tool",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Tool": {
+      "main": [
+        [
+          {
+            "node": "Query Availability",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Reservation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Modify Reservation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Cancel Reservation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Find Reservation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Unknown",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Availability": {
+      "main": [
+        [
+          {
+            "node": "Respond Availability",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Reservation": {
+      "main": [
+        [
+          {
+            "node": "Respond Create",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Modify Reservation": {
+      "main": [
+        [
+          {
+            "node": "Respond Modify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancel Reservation": {
+      "main": [
+        [
+          {
+            "node": "Respond Cancel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Reservation": {
+      "main": [
+        [
+          {
+            "node": "Respond Find",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond Create": {
+      "main": [
+        [
+          {
+            "node": "Should Send SMS?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond Modify": {
+      "main": [
+        [
+          {
+            "node": "Should Send SMS?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond Cancel": {
+      "main": [
+        [
+          {
+            "node": "Should Send SMS?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Send SMS?": {
+      "main": [
+        [
+          {
+            "node": "Send SMS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Istanbul"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}
