@@ -248,9 +248,9 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT fn_create_reservation($1, $2, $3, $4, $5, $6, $7, $8, $9) AS result;",
+        "query": "SELECT fn_create_reservation($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) AS result;",
         "options": {
-          "queryReplacement": "={{ [String($json.args.room_type ?? ''), String($json.args.customer_name ?? ''), String($json.args.phone || $json.caller_phone || ''), String($json.args.guests ?? ''), String($json.args.check_in ?? ''), String($json.args.check_out ?? ''), String($json.args.notes ?? ''), $json.call_id, String($json.args.hotel ?? '')] }}"
+          "queryReplacement": "={{ [String($json.args.room_type ?? ''), String($json.args.customer_name ?? ''), String($json.args.phone || $json.caller_phone || ''), String($json.args.guests ?? ''), String($json.args.check_in ?? ''), String($json.args.check_out ?? ''), String($json.args.notes ?? ''), $json.call_id, String($json.args.hotel ?? ''), String($json.args.email ?? '')] }}"
         }
       },
       "id": "cdd127a9-9357-550b-8e79-2acb5a445b22",
@@ -473,6 +473,92 @@
           "name": "Twilio"
         }
       }
+    },
+    {
+      "parameters": {
+        "from": "+14155238886",
+        "to": "={{ $json.result.sms_to }}",
+        "toWhatsapp": true,
+        "message": "={{ $json.result.sms_text }}",
+        "options": {}
+      },
+      "id": "244d816d-d97a-5493-a311-8188174288d2",
+      "name": "Send WhatsApp",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [
+        1440,
+        420
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "twilioApi": {
+          "id": "REPLACE_ME",
+          "name": "Twilio"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d3f721b5-0ec2-5894-8989-f1dce3b40175",
+              "leftValue": "={{ !!$json.result?.email_to }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "da7f3086-6f75-566b-9f04-8afe00ba144c",
+      "name": "Should Send Email?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1200,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "A1 Tur <rezervasyon@ornek.com>",
+        "toEmail": "={{ $json.result.email_to }}",
+        "subject": "={{ $json.result.email_subject }}",
+        "emailFormat": "html",
+        "html": "={{ $json.result.email_html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "31ccce1e-959d-547b-a4fb-d4f045b99982",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1440,
+        620
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "smtp": {
+          "id": "REPLACE_ME",
+          "name": "SMTP"
+        }
+      }
     }
   ],
   "connections": {
@@ -606,6 +692,11 @@
             "node": "Should Send SMS?",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Should Send Email?",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -615,6 +706,11 @@
         [
           {
             "node": "Should Send SMS?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Should Send Email?",
             "type": "main",
             "index": 0
           }
@@ -628,6 +724,11 @@
             "node": "Should Send SMS?",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Should Send Email?",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -637,6 +738,22 @@
         [
           {
             "node": "Send SMS",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Send Email?": {
+      "main": [
+        [
+          {
+            "node": "Send Email",
             "type": "main",
             "index": 0
           }

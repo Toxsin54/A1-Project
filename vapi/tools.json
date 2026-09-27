@@ -36,7 +36,7 @@
   },
   {
     "name": "create_reservation",
-    "description": "Müşteri özeti dinleyip AÇIKÇA onay verdikten sonra rezervasyonu oluşturur ve müşteriye SMS gönderir. Rezervasyon numarasını döndürür.",
+    "description": "Müşteri özeti dinleyip AÇIKÇA onay verdikten sonra rezervasyonu oluşturur; bilgileri SMS, WhatsApp ve (e-posta verildiyse) e-posta ile gönderir. Rezervasyon numarasını döndürür.",
     "requestStart": "Rezervasyonunuzu oluşturuyorum.",
     "parameters": {
       "type": "object",
@@ -72,6 +72,10 @@
         "hotel": {
           "type": "string",
           "description": "Otel adı. room_type kodu kullanılıyorsa gerekmez."
+        },
+        "email": {
+          "type": "string",
+          "description": "Müşterinin e-posta adresi (isteğe bağlı). Harf harf teyit edilmiş haliyle, ör. 'ali.veli@gmail.com'. Müşteri vermek istemezse boş bırak."
         }
       },
       "required": [

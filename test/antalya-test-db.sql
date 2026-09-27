@@ -103,6 +103,9 @@ CREATE TABLE IF NOT EXISTS reservations (
     cancelled_at   timestamptz,
     CHECK (check_out > check_in)
 );
+-- Sonradan eklenen alanlar (mevcut veritabanlarında da çalışır)
+ALTER TABLE reservations ADD COLUMN IF NOT EXISTS email text;   -- bilgilendirme e-postası (isteğe bağlı)
+
 CREATE INDEX IF NOT EXISTS reservations_active_stay
     ON reservations (room_type_id, check_in, check_out) WHERE status = 'confirmed';
 CREATE INDEX IF NOT EXISTS reservations_phone
@@ -127,6 +130,7 @@ CREATE INDEX IF NOT EXISTS reservations_phone
 DROP FUNCTION IF EXISTS fn_find_room_type(text);
 DROP FUNCTION IF EXISTS fn_check_availability(text, text, text, text);
 DROP FUNCTION IF EXISTS fn_create_reservation(text, text, text, text, text, text, text, text);
+DROP FUNCTION IF EXISTS fn_create_reservation(text, text, text, text, text, text, text, text, text);
 
 -- ---------------------------------------------------------------------
 -- Yardımcılar
@@ -374,6 +378,70 @@ RETURNS text LANGUAGE sql IMMUTABLE AS $$
                   (SELECT string_agg(f, ', ') FROM jsonb_array_elements_text(o->'features') f));
 $$;
 
+-- E-posta adresini sadeleştirir; geçersizse NULL
+CREATE OR REPLACE FUNCTION fn_clean_email(p text)
+RETURNS text LANGUAGE sql IMMUTABLE AS $$
+    SELECT CASE WHEN x ~ '^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$' THEN x END
+    FROM (SELECT lower(regexp_replace(COALESCE(p, ''), '\s', '', 'g')) AS x) t;
+$$;
+
+CREATE OR REPLACE FUNCTION fn_html(p text)
+RETURNS text LANGUAGE sql IMMUTABLE AS $$
+    SELECT replace(replace(replace(replace(COALESCE(p, ''), '&', '&amp;'), '<', '&lt;'), '>', '&gt;'), '"', '&quot;');
+$$;
+
+-- Asistanın okuyacağı "nereye gönderiliyor" metni
+CREATE OR REPLACE FUNCTION fn_notify_text(r reservations)
+RETURNS text LANGUAGE sql IMMUTABLE AS $$
+    SELECT format('%s numarasına SMS ve WhatsApp ile%s', r.phone,
+                  CASE WHEN r.email IS NOT NULL THEN ', ' || r.email || ' adresine e-posta ile' ELSE '' END);
+$$;
+
+-- Bilgilendirme e-postası (e-posta yoksa boş jsonb)
+CREATE OR REPLACE FUNCTION fn_reservation_email(r reservations, p_action text)
+RETURNS jsonb LANGUAGE plpgsql STABLE AS $$
+DECLARE
+    h      hotels;
+    rt     room_types;
+    v_row  text := '<tr><td style="padding:6px 12px 6px 0;color:#55656d;white-space:nowrap">%s</td><td style="padding:6px 0">%s</td></tr>';
+    v_html text;
+    v_intro text;
+BEGIN
+    IF r.email IS NULL THEN
+        RETURN '{}'::jsonb;
+    END IF;
+    SELECT * INTO rt FROM room_types WHERE id = r.room_type_id;
+    SELECT * INTO h FROM hotels WHERE id = rt.hotel_id;
+
+    v_intro := CASE p_action
+        WHEN 'onaylandı'    THEN 'Rezervasyonunuz oluşturulmuş ve onaylanmıştır. Detaylar aşağıdadır.'
+        WHEN 'güncellendi'  THEN 'Rezervasyonunuz güncellenmiştir. Güncel bilgiler aşağıdadır.'
+        ELSE 'Rezervasyonunuz iptal edilmiştir. İptal edilen rezervasyonun bilgileri aşağıdadır.' END;
+
+    v_html := '<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;color:#17252f;font-size:15px;line-height:1.5">'
+        || format('<h2 style="color:%s;margin:0 0 16px">Rezervasyonunuz %s</h2>',
+                  CASE WHEN p_action = 'iptal edildi' THEN '#a4591b' ELSE '#0d7482' END, fn_html(p_action))
+        || format('<p>Sayın %s,</p><p>%s</p>', fn_html(r.customer_name), v_intro)
+        || '<table style="border-collapse:collapse;margin:12px 0 20px">'
+        || format(v_row, 'Rezervasyon no', '<b>' || r.code || '</b>')
+        || format(v_row, 'Otel', fn_html(h.name) || ' (' || fn_html(h.region) || ')')
+        || format(v_row, 'Oda', fn_html(rt.name))
+        || format(v_row, 'Konsept', fn_html(h.board_type))
+        || format(v_row, 'Giriş', fn_tr_date(r.check_in))
+        || format(v_row, 'Çıkış', fn_tr_date(r.check_out))
+        || format(v_row, 'Konaklama', r.nights || ' gece, ' || r.guests || ' kişi')
+        || format(v_row, 'Toplam tutar', '<b>' || fn_money(r.total_price, rt.currency) || '</b>')
+        || CASE WHEN r.notes IS NOT NULL THEN format(v_row, 'Notunuz', fn_html(r.notes)) ELSE '' END
+        || '</table>'
+        || format('<p style="color:#55656d;font-size:13px">%s</p></div>', fn_html(fn_setting('sms_signature', '')));
+
+    RETURN jsonb_build_object(
+        'email_to', r.email,
+        'email_subject', format('Rezervasyonunuz %s - No %s | %s', p_action, r.code, fn_setting('company_name', '')),
+        'email_html', v_html);
+END $$;
+
+
 -- =====================================================================
 -- TOOL: check_availability
 --   p_hotel: otel adı / kısa adı ya da bölge (Lara, Belek, Kemer...). Boşsa tüm oteller.
@@ -553,10 +621,11 @@ END $$;
 CREATE OR REPLACE FUNCTION fn_create_reservation(p_room_type text, p_customer_name text, p_phone text,
                                                  p_guests text, p_check_in text, p_check_out text,
                                                  p_notes text DEFAULT NULL, p_call_id text DEFAULT NULL,
-                                                 p_hotel text DEFAULT NULL)
+                                                 p_hotel text DEFAULT NULL, p_email text DEFAULT NULL)
 RETURNS jsonb LANGUAGE plpgsql VOLATILE AS $$
 DECLARE
     v_ids    int[];
+    v_email  text := fn_clean_email(p_email);
     v_in     date := fn_try_date(p_check_in);
     v_out    date := fn_try_date(p_check_out);
     v_guests int  := fn_try_int(p_guests);
@@ -578,6 +647,10 @@ BEGIN
     IF v_guests IS NULL OR v_guests < 1 THEN
         RETURN jsonb_build_object('ok', false, 'send_sms', false,
                                   'message', 'Kişi sayısı eksik ya da geçersiz. Müşteriden kişi sayısını öğren.');
+    END IF;
+    IF COALESCE(btrim(p_email), '') <> '' AND v_email IS NULL THEN
+        RETURN jsonb_build_object('ok', false, 'send_sms', false,
+            'message', format('E-posta adresi geçersiz görünüyor: "%s". Rezervasyon henüz oluşturulmadı. Müşteriden e-postayı harf harf tekrar iste (ör. "a-l-i nokta v-e-l-i et gmail nokta com") ya da e-postasız devam etmek isterse email alanını boş bırakarak tekrar çağır.', p_email));
     END IF;
     v_err := fn_validate_stay(v_in, v_out, p_check_in, p_check_out);
     IF v_err IS NOT NULL THEN
@@ -617,7 +690,7 @@ BEGIN
     IF v_res.id IS NOT NULL THEN
         RETURN jsonb_build_object('ok', true, 'duplicate', true, 'send_sms', false,
             'reservation_code', v_res.code,
-            'message', format('Bu rezervasyon zaten oluşturulmuş. Rezervasyon numarası: %s (%s). %s. SMS daha önce gönderildi.',
+            'message', format('Bu rezervasyon zaten oluşturulmuş. Rezervasyon numarası: %s (%s). %s. Bilgilendirme mesajları daha önce gönderildi.',
                               v_res.code, fn_spell(v_res.code), fn_reservation_summary(v_res)));
     END IF;
 
@@ -628,10 +701,10 @@ BEGIN
     END IF;
 
     INSERT INTO reservations (code, customer_name, phone, room_type_id, guests, check_in, check_out,
-                              total_price, notes, vapi_call_id)
+                              total_price, notes, vapi_call_id, email)
     VALUES (fn_new_reservation_code(), v_name, btrim(p_phone), v_rt.id, v_guests, v_in, v_out,
             fn_stay_price(v_rt.id, v_in, v_out), NULLIF(btrim(COALESCE(p_notes, '')), ''),
-            NULLIF(p_call_id, ''))
+            NULLIF(p_call_id, ''), v_email)
     RETURNING * INTO v_res;
 
     v_sum := fn_reservation_summary(v_res);
@@ -639,12 +712,13 @@ BEGIN
         'ok', true,
         'reservation_code', v_res.code,
         'reservation_id', v_res.id,
-        'message', format('Rezervasyon oluşturuldu ve onaylandı. Rezervasyon numarası: %s (müşteriye tek tek oku: %s). %s. Rezervasyon detayları %s numarasına SMS ile gönderiliyor.',
-                          v_res.code, fn_spell(v_res.code), v_sum, v_res.phone),
+        'message', format('Rezervasyon oluşturuldu ve onaylandı. Rezervasyon numarası: %s (müşteriye tek tek oku: %s). %s. Rezervasyon detayları %s gönderiliyor.',
+                          v_res.code, fn_spell(v_res.code), v_sum, fn_notify_text(v_res)),
         'send_sms', true,
         'sms_to', fn_phone_e164(v_res.phone),
         'sms_text', format('Sayın %s, rezervasyonunuz onaylandı. Rez. No: %s | %s. %s',
-                           v_res.customer_name, v_res.code, v_sum, fn_setting('sms_signature', '')));
+                           v_res.customer_name, v_res.code, v_sum, fn_setting('sms_signature', '')))
+        || fn_reservation_email(v_res, 'onaylandı');
 END $$;
 
 
@@ -728,15 +802,17 @@ BEGIN
     RETURN jsonb_build_object(
         'ok', true,
         'reservation_code', v_res.code,
-        'message', format('Rezervasyon güncellendi. Yeni bilgiler: %s. %s Güncel bilgiler SMS ile gönderiliyor.',
+        'message', format('Rezervasyon güncellendi. Yeni bilgiler: %s. %s Güncel bilgiler %s gönderiliyor.',
                           v_sum,
                           CASE WHEN v_diff > 0 THEN 'Fiyat farkı: ' || fn_money(v_diff, v_rt.currency) || ' artış.'
                                WHEN v_diff < 0 THEN 'Fiyat farkı: ' || fn_money(-v_diff, v_rt.currency) || ' azalış.'
-                               ELSE 'Toplam fiyat değişmedi.' END),
+                               ELSE 'Toplam fiyat değişmedi.' END,
+                          fn_notify_text(v_res)),
         'send_sms', true,
         'sms_to', fn_phone_e164(v_res.phone),
         'sms_text', format('Sayın %s, %s numaralı rezervasyonunuz güncellendi: %s. %s',
-                           v_res.customer_name, v_res.code, v_sum, fn_setting('sms_signature', '')));
+                           v_res.customer_name, v_res.code, v_sum, fn_setting('sms_signature', '')))
+        || fn_reservation_email(v_res, 'güncellendi');
 END $$;
 
 
@@ -770,13 +846,14 @@ BEGIN
     RETURN jsonb_build_object(
         'ok', true,
         'reservation_code', v_res.code,
-        'message', format('%s numaralı rezervasyon iptal edildi (%s). İptal bilgisi SMS ile gönderiliyor.',
-                          v_res.code, fn_reservation_summary(v_res)),
+        'message', format('%s numaralı rezervasyon iptal edildi (%s). İptal bilgisi %s gönderiliyor.',
+                          v_res.code, fn_reservation_summary(v_res), fn_notify_text(v_res)),
         'send_sms', true,
         'sms_to', fn_phone_e164(v_res.phone),
         'sms_text', format('Sayın %s, %s numaralı rezervasyonunuz iptal edilmiştir (%s). %s',
                            v_res.customer_name, v_res.code, fn_reservation_summary(v_res),
-                           fn_setting('sms_signature', '')));
+                           fn_setting('sms_signature', '')))
+        || fn_reservation_email(v_res, 'iptal edildi');
 END $$;
 
 

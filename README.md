@@ -7,7 +7,7 @@ Müşteri telefonla arar, sesli asistan (Vapi) onunla konuşur ve şu adımları
    - İstenen oda boşsa özelliklerini ve fiyatını söyler.
    - Oda doluysa ya da kişi sayısına uygun değilse fiyat ve özellikleriyle **alternatifler** sunar.
 3. Müşteri onay verirse rezervasyonu oluşturur ve rezervasyon numarasını söyler.
-4. Rezervasyon detaylarını müşteriye **SMS** olarak gönderir.
+4. Rezervasyon detaylarını müşteriye **SMS**, **WhatsApp** ve (müşteri e-posta verdiyse) **e-posta** ile gönderir.
 
 Değişiklik, iptal ve rezervasyon numarasını unutan müşteri için telefonla arama da desteklenir.
 
@@ -18,9 +18,9 @@ Müşteri ──telefon──▶ Vapi (STT + LLM + TTS)
                  n8n  /webhook/vapi/reservations
    Vapi Tool Call ─▶ Extract Tool Call ─▶ Route Tool (Switch)
         ├─ check_availability ─▶ Query Availability ─▶ Respond Availability
-        ├─ create_reservation ─▶ Create Reservation ─▶ Respond Create ─┐
-        ├─ modify_reservation ─▶ Modify Reservation ─▶ Respond Modify ─┼▶ Should Send SMS? ─▶ Send SMS (Twilio)
-        ├─ cancel_reservation ─▶ Cancel Reservation ─▶ Respond Cancel ─┘
+        ├─ create_reservation ─▶ Create Reservation ─▶ Respond Create ─┐   ┌▶ Should Send SMS? ──┬▶ Send SMS (Twilio)
+        ├─ modify_reservation ─▶ Modify Reservation ─▶ Respond Modify ─┼───┤                     └▶ Send WhatsApp (Twilio)
+        ├─ cancel_reservation ─▶ Cancel Reservation ─▶ Respond Cancel ─┘   └▶ Should Send Email? ─▶ Send Email (SMTP)
         ├─ find_reservation   ─▶ Find Reservation   ─▶ Respond Find
         └─ (Unknown)          ─────────────────────▶ Respond Unknown
                          │
@@ -54,7 +54,7 @@ Müşteri ──telefon──▶ Vapi (STT + LLM + TTS)
   - Webhook, `X-Vapi-Secret` başlığı olmadan çalışmaz.
   - Değişiklik ve iptal için rezervasyon numarası **ve** rezervasyondaki telefon eşleşmelidir. Telefon verilmezse arayan numara kullanılır.
 - **Hata toleransı.** Hatalı tarih ya da eksik bilgi gelirse fonksiyon hata fırlatmaz, asistana ne sorması gerektiğini söyler. Veritabanı hatasında Vapi'ye yine düzgün bir cevap döner, böylece görüşme askıda kalmaz.
-- **SMS görüşmeyi bekletmez.** Yanıt Vapi'ye gönderildikten sonra SMS atılır. SMS hatası rezervasyonu etkilemez.
+- **Bildirimler görüşmeyi bekletmez.** SMS, WhatsApp ve e-posta, yanıt Vapi'ye gönderildikten sonra gönderilir. Birinin başarısız olması diğerlerini ve rezervasyonu etkilemez. E-posta sadece müşteri adres verdiyse gider; asistan adresi harf harf teyit eder, geçersiz adreste rezervasyonu oluşturmadan tekrar sorar.
 - **Fiyat.** Gecelik fiyat `room_rates` tablosundaki sezon fiyatından, yoksa `room_types.price_per_night` değerinden gelir. Toplam fiyat gece gece hesaplanır.
 
 ## Kurulum
@@ -68,7 +68,7 @@ cp .env.example .env      # şifreleri doldurun
 docker compose up -d      # db/*.sql ilk açılışta otomatik yüklenir
 ```
 
-Mevcut bir PostgreSQL'e yüklemek için:
+Mevcut bir PostgreSQL'e yüklemek için (tekrar çalıştırmak güvenlidir; veriler silinmez, yeni alanlar ve fonksiyonlar eklenir):
 
 ```bash
 psql "$DATABASE_URL" -f db/01_schema.sql -f db/02_functions.sql -f db/03_seed.sql
@@ -94,7 +94,10 @@ Sezon fiyatlarını `room_rates` tablosuna, firma adını ve SMS imzasını `app
 2. Credential'ları oluşturun:
    - **Header Auth** (Vapi Tool Call düğümü): Name `X-Vapi-Secret`, Value uzun rastgele bir değer. Bu değer `.env` içindeki `VAPI_WEBHOOK_SECRET` ile aynı olmalı.
    - **Postgres**: 5 sorgu düğümünün hepsinde seçin.
-   - **Twilio**: *Send SMS* düğümünde seçin ve `From` alanına Twilio numaranızı yazın.
+   - **Twilio**: *Send SMS* ve *Send WhatsApp* düğümlerinde seçin.
+     - *Send SMS* düğümünün `From` alanına Twilio SMS numaranızı yazın.
+     - *Send WhatsApp* düğümünün `From` alanına WhatsApp göndericinizi yazın. Test için Twilio Sandbox numarası `+14155238886` kullanılabilir; bu durumda alıcının önce sandbox'a WhatsApp'tan `join <kod>` mesajı göndermesi gerekir.
+   - **SMTP**: *Send Email* düğümünde seçin ve `From Email` alanını kendi adresinizle değiştirin. Gmail kullanıyorsanız host `smtp.gmail.com`, port `465`, SSL açık, şifre olarak Google hesabınızdan alınan **uygulama şifresi** girilir.
 3. Workflow'u **Active** yapın. Üretim adresi: `https://<n8n-adresiniz>/webhook/vapi/reservations`
 
 > **Türkiye'de SMS:** Twilio yerine Netgsm, İleti Merkezi gibi yerel bir sağlayıcı kullanacaksanız *Send SMS* düğümünü o sağlayıcının API'sine istek atan bir **HTTP Request** düğümüyle değiştirin. Alıcı için `{{$json.result.sms_to}}`, metin için `{{$json.result.sms_text}}` alanlarını kullanın. SMS metni Türkçe karakter içerir; sağlayıcıda Türkçe karakter (TR encoding) seçeneğini açın.
@@ -142,7 +145,7 @@ n8n'in döndüğü yanıt:
 | Araç | Parametreler |
 |---|---|
 | `check_availability` | `check_in`, `check_out`, `guests`, `hotel` (ops., otel adı ya da bölge), `room_type` (ops.) |
-| `create_reservation` | `room_type` (sorgu sonucundaki kod), `customer_name`, `guests`, `check_in`, `check_out`, `phone` (ops., yoksa arayan numara), `notes` (ops.), `hotel` (ops.) |
+| `create_reservation` | `room_type` (sorgu sonucundaki kod), `customer_name`, `guests`, `check_in`, `check_out`, `phone` (ops., yoksa arayan numara), `email` (ops.), `notes` (ops.), `hotel` (ops.) |
 | `modify_reservation` | `reservation_id`, `phone` (ops.), `check_in` / `check_out` / `guests` (değişenler) |
 | `cancel_reservation` | `reservation_id`, `phone` (ops.) |
 | `find_reservation` | `phone` (ops.) |

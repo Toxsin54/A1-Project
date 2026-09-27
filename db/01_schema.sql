@@ -76,6 +76,9 @@ CREATE TABLE IF NOT EXISTS reservations (
     cancelled_at   timestamptz,
     CHECK (check_out > check_in)
 );
+-- Sonradan eklenen alanlar (mevcut veritabanlarında da çalışır)
+ALTER TABLE reservations ADD COLUMN IF NOT EXISTS email text;   -- bilgilendirme e-postası (isteğe bağlı)
+
 CREATE INDEX IF NOT EXISTS reservations_active_stay
     ON reservations (room_type_id, check_in, check_out) WHERE status = 'confirmed';
 CREATE INDEX IF NOT EXISTS reservations_phone
