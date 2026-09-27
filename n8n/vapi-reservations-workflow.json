@@ -194,7 +194,7 @@
         },
         "options": {
           "fallbackOutput": "extra",
-          "renameFallback": "Unknown"
+          "renameFallbackOutput": "Unknown"
         }
       },
       "id": "d478eefd-506d-51a4-b855-83c81533b1fd",
