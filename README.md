@@ -41,6 +41,7 @@ Müşteri ──telefon──▶ Vapi (STT + LLM + TTS)
 | `vapi/deploy.mjs` | Asistanı Vapi API ile oluşturan/güncelleyen betik |
 | `test/antalya-test-db.sql` | Mevcut veritabanını sıfırlayıp şema + fonksiyonlar + Antalya verisini tek seferde yükleyen dosya (`test/build_antalya_db.sh` ile üretilir) |
 | `test/simulate_vapi.sh` | Vapi isteğini taklit ederek webhook'u test eder |
+| `obsidian/` | Obsidian vault başlangıç dosyaları: otel notları, misafir panosu |
 | `docker-compose.yml` | Yerel/küçük kurulum için PostgreSQL + n8n |
 
 ## Tasarım kararları
@@ -120,6 +121,39 @@ Asistanı panelden elle kurmak isterseniz:
 1. `vapi/system-prompt.md` içeriğini System Prompt alanına yapıştırın ve `__COMPANY_NAME__` yerine firma adınızı yazın.
 2. `vapi/tools.json` içindeki 5 aracı **Function Tool** olarak ekleyin.
 3. Her aracın Server URL'si olarak n8n adresini girin ve `X-Vapi-Secret` başlığını ekleyin.
+
+### 4) Obsidian (misafir notları, isteğe bağlı)
+
+Rezervasyon oluşturulduğunda, değiştirildiğinde ya da iptal edildiğinde misafirin notu Obsidian vault'unuza yazılır:
+
+```
+Oteller/
+└── Konyaaltı Sahil Otel/
+    ├── Konyaaltı Sahil Otel.md     ← otel bilgisi + misafir tablosu (Dataview)
+    └── Taşkın ÖZTÜRK.md            ← misafir notu (otomatik)
+```
+
+Misafir notunda şunlar bulunur:
+- Obsidian özellikleri: ad soyad, telefon, otel, son rezervasyon, durum, rezervasyon sayısı, güncelleme zamanı.
+- Kişinin o oteldeki **tüm** rezervasyonlarının tablosu. Aynı telefon numarasıyla yapılanlar tek notta toplanır.
+- **Notlarım** başlığı. Bunun altına elle yazdıklarınız korunur; üst kısım her işlemde yeniden üretilir.
+
+n8n Cloud bilgisayarınıza doğrudan yazamadığı için notlar önce GitHub'daki **özel** bir depoya yazılır. Obsidian Git eklentisi bu depoyu vault'unuza çeker.
+
+1. **Vault deposu:** GitHub'da **Private** bir depo oluşturun, ör. `obsidian-vault`. Bu projedeki `obsidian/` klasörünün içeriğini deponun köküne koyun: otel notları, `Misafirler.md` ve `.gitignore`.
+2. **Obsidian:**
+   - Depoyu bilgisayarınıza klonlayıp **Open folder as vault** ile açın.
+   - **Community plugins** bölümünden **Obsidian Git** ve **Dataview** eklentilerini kurun.
+   - Obsidian Git ayarlarında *Auto pull interval* = 1 dakika, *Auto commit-and-sync interval* = 5 dakika, *Pull on startup* = açık yapın.
+3. **GitHub token:** GitHub → Settings → Developer settings → **Fine-grained token** oluşturun. Yalnızca vault deposunu seçin, **Contents: Read and write** izni verin.
+4. **n8n:**
+   - *Get Note* ve *Save Note* düğümlerinde **GitHub API** credential'ı oluşturup seçin (token'ı yapıştırın).
+   - *Obsidian Settings* düğümünde `vault_repo` alanına `kullanıcı-adınız/obsidian-vault` yazın. Dal `main` değilse `vault_branch` alanını da değiştirin.
+5. **Veritabanı:** `db/02_functions.sql` dosyasını çalıştırın. Bu dosya sadece fonksiyonları günceller, verilerinize dokunmaz.
+
+GitHub'a yazılamazsa (token hatası vb.) rezervasyon ve SMS etkilenmez; hata n8n **Executions** ekranında *Save Note* düğümünde görünür.
+
+> **KVKK:** Notlarda ad ve telefon gibi kişisel veriler bulunur. Vault deposunu mutlaka **Private** tutun, erişimi sadece yetkili kişilere verin.
 
 ## Vapi ↔ n8n sözleşmesi
 

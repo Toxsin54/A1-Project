@@ -473,6 +473,160 @@
           "name": "Twilio"
         }
       }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a37b5643-2661-59e8-8502-60d1817b5594",
+              "leftValue": "={{ !!$json.result?.note_path }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "957b3cde-96ed-5904-afc7-8d634ab98b4d",
+      "name": "Should Write Note?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1200,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "7df2da68-2865-59e0-b293-5b22a047901e",
+              "name": "vault_repo",
+              "type": "string",
+              "value": "KULLANICI/obsidian-vault"
+            },
+            {
+              "id": "f89de6a2-434d-563b-919f-984aa38d99e7",
+              "name": "vault_branch",
+              "type": "string",
+              "value": "main"
+            },
+            {
+              "id": "e98920a9-c830-55d4-9b66-7a0a15bd0a2b",
+              "name": "github_api",
+              "type": "string",
+              "value": "https://api.github.com"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "f9fd7ed0-26ab-578f-b0e0-02690a65fa80",
+      "name": "Obsidian Settings",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1440,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.github_api }}/repos/{{ $json.vault_repo }}/contents/{{ $json.result.note_path.split('/').map(encodeURIComponent).join('/') }}?ref={{ encodeURIComponent($json.vault_branch) }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "5f48c240-d37c-5aba-ab2c-722f883ccc23",
+      "name": "Get Note",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        560
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "credentials": {
+        "githubApi": {
+          "id": "REPLACE_ME",
+          "name": "GitHub (Obsidian vault)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Yeni üretilen not + mevcut notun \"%% manuel-notlar %%\" altındaki kısmı (elle yazılanlar)\nconst s = $('Obsidian Settings').first().json;\nconst existing = $input.first().json;\nconst MARK = '%% manuel-notlar %%';\n\nlet manual = '\\n';\nlet sha;\nif (existing && existing.sha && typeof existing.content === 'string') {\n  sha = existing.sha;\n  const old = Buffer.from(existing.content, 'base64').toString('utf8');\n  const i = old.indexOf(MARK);\n  manual = i >= 0 ? old.slice(i + MARK.length) : '\\n\\n' + old;\n}\n\nconst text = s.result.note_content + manual;\nconst path = s.result.note_path.split('/').map(encodeURIComponent).join('/');\nconst body = {\n  message: s.result.note_message,\n  content: Buffer.from(text, 'utf8').toString('base64'),\n  branch: s.vault_branch,\n};\nif (sha) body.sha = sha;\n\nreturn [{ json: { url: `${s.github_api}/repos/${s.vault_repo}/contents/${path}`, body } }];\n"
+      },
+      "id": "afef6be7-1375-5ffc-9392-2b62e55fe700",
+      "name": "Merge Note",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $json.url }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {}
+      },
+      "id": "482f6dfb-17ad-56f3-bfc6-60f3b0eef9d4",
+      "name": "Save Note",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        560
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "githubApi": {
+          "id": "REPLACE_ME",
+          "name": "GitHub (Obsidian vault)"
+        }
+      }
     }
   ],
   "connections": {
@@ -606,6 +760,11 @@
             "node": "Should Send SMS?",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Should Write Note?",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -615,6 +774,11 @@
         [
           {
             "node": "Should Send SMS?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Should Write Note?",
             "type": "main",
             "index": 0
           }
@@ -628,6 +792,11 @@
             "node": "Should Send SMS?",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Should Write Note?",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -637,6 +806,50 @@
         [
           {
             "node": "Send SMS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Write Note?": {
+      "main": [
+        [
+          {
+            "node": "Obsidian Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Obsidian Settings": {
+      "main": [
+        [
+          {
+            "node": "Get Note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Note": {
+      "main": [
+        [
+          {
+            "node": "Merge Note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Note": {
+      "main": [
+        [
+          {
+            "node": "Save Note",
             "type": "main",
             "index": 0
           }
