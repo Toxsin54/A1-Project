@@ -269,3 +269,7 @@ SELECT fn_check_availability('aile odası', '2026-10-06', '2026-10-09', '4', 'Ke
 Rezervasyonlar `reservations` tablosunda durur. Panelinizde aynı veritabanını kullanabilir ya da panelden de aynı `fn_*` fonksiyonlarını çağırabilirsiniz; böylece telefon kanalı ile panel aynı stok ve fiyat kurallarını kullanır.
 
 Paneliniz ayrı bir sistemse ve REST API sunuyorsa, n8n'deki Postgres düğümlerini o API'ye istek atan HTTP Request düğümleriyle değiştirin. Yanıt düğümleri `result.message` alanını beklediği için API'nin de aynı alanları dönmesi yeterlidir.
+
+## Diğer bileşenler
+
+- [`energy-agent/`](energy-agent/README.md): Ham petrol, işlenmiş ürünler, doğal gaz, elektrik ve karbon piyasalarını ve enerji haberlerini izleyen, sonuçları Veri Analiz Ajanı'na standart raporla ileten haber takip ajanının mimarisi, veritabanı şeması ve rapor sözleşmesi.

@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:a1:schema:energy-report:1",
+  "title": "Enerji ajanı raporu",
+  "description": "Ortak ajan zarfı + enerjiye özgü payload. Analist ajana giden her rapor bu şemaya uyar.",
+  "allOf": [
+    { "$ref": "urn:a1:schema:agent-report-envelope:1" },
+    {
+      "type": "object",
+      "properties": {
+        "agent": { "properties": { "id": { "const": "energy-news" } } },
+        "report_type": { "enum": ["morning_brief", "daily_close", "weekly_outlook", "event_note", "alert"] },
+        "findings": {
+          "items": {
+            "properties": {
+              "topic": { "enum": ["crude", "refined_products", "natural_gas", "power", "carbon", "cross_market"] }
+            }
+          }
+        },
+        "payload": { "$ref": "#/$defs/energy_payload" }
+      }
+    }
+  ],
+  "$defs": {
+    "segment": { "enum": ["crude", "refined_products", "natural_gas", "power", "carbon", "fx", "cross_market"] },
+    "num": { "type": ["number", "null"] },
+    "energy_payload": {
+      "type": "object",
+      "required": ["market_snapshot", "derived_metrics", "indicators", "news", "market_moves", "calendar"],
+      "additionalProperties": false,
+      "properties": {
+        "market_snapshot": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["instrument", "name", "segment", "unit", "value", "as_of", "is_stale", "evidence_id"],
+            "additionalProperties": false,
+            "properties": {
+              "instrument": { "type": "string" },
+              "name": { "type": "string" },
+              "segment": { "$ref": "#/$defs/segment" },
+              "unit": { "type": "string" },
+              "region": { "type": ["string", "null"] },
+              "value": { "type": "number" },
+              "as_of": { "type": "string", "format": "date" },
+              "change_1d": { "$ref": "#/$defs/num" },
+              "change_1d_pct": { "$ref": "#/$defs/num" },
+              "change_5d_pct": { "$ref": "#/$defs/num" },
+              "change_20d_pct": { "$ref": "#/$defs/num" },
+              "zscore_1d": { "$ref": "#/$defs/num" },
+              "is_stale": { "type": "boolean" },
+              "source": { "type": ["string", "null"] },
+              "evidence_id": { "type": "string" }
+            }
+          }
+        },
+        "derived_metrics": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["code", "name", "segment", "unit", "value", "as_of", "evidence_id"],
+            "additionalProperties": false,
+            "properties": {
+              "code": { "type": "string" },
+              "name": { "type": "string" },
+              "segment": { "$ref": "#/$defs/segment" },
+              "unit": { "type": "string" },
+              "value": { "type": "number" },
+              "change_1d": { "$ref": "#/$defs/num" },
+              "as_of": { "type": "string", "format": "date" },
+              "evidence_id": { "type": "string" }
+            }
+          }
+        },
+        "indicators": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["code", "name", "segment", "unit", "value", "period_end", "surprise_basis", "evidence_id"],
+            "additionalProperties": false,
+            "properties": {
+              "code": { "type": "string" },
+              "name": { "type": "string" },
+              "segment": { "$ref": "#/$defs/segment" },
+              "unit": { "type": "string" },
+              "value": { "type": "number" },
+              "period_end": { "type": "string", "format": "date" },
+              "released_at": { "type": ["string", "null"] },
+              "change": { "$ref": "#/$defs/num" },
+              "consensus_change": { "$ref": "#/$defs/num" },
+              "surprise": { "$ref": "#/$defs/num" },
+              "surprise_basis": { "enum": ["consensus", "seasonal_5y", "none"] },
+              "price_sign": { "enum": [-1, 0, 1] },
+              "evidence_id": { "type": "string" }
+            }
+          }
+        },
+        "news": {
+          "type": "array",
+          "maxItems": 30,
+          "items": {
+            "type": "object",
+            "required": ["cluster_id", "headline", "first_seen_at", "best_tier", "source_count", "event_type", "segments", "impacts", "novelty", "is_rumor", "confidence", "score", "sources", "evidence_id"],
+            "additionalProperties": false,
+            "properties": {
+              "cluster_id": { "type": "integer" },
+              "headline": { "type": "string" },
+              "summary_tr": { "type": ["string", "null"] },
+              "first_seen_at": { "type": "string" },
+              "best_tier": { "type": "integer", "minimum": 1, "maximum": 3 },
+              "source_count": { "type": "integer", "minimum": 1 },
+              "sources": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["source", "url"],
+                  "additionalProperties": false,
+                  "properties": { "source": { "type": "string" }, "url": { "type": "string" } }
+                }
+              },
+              "event_type": { "type": "string" },
+              "segments": { "type": "array", "items": { "$ref": "#/$defs/segment" } },
+              "regions": { "type": "array", "items": { "type": "string" } },
+              "impacts": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["segment", "price_direction", "magnitude", "horizon"],
+                  "properties": {
+                    "segment": { "$ref": "#/$defs/segment" },
+                    "instruments": { "type": "array", "items": { "type": "string" } },
+                    "price_direction": { "enum": ["up", "down", "neutral", "uncertain"] },
+                    "magnitude": { "type": "integer", "minimum": 0, "maximum": 3 },
+                    "horizon": { "enum": ["intraday", "short", "medium", "long"] },
+                    "rationale": { "type": "string" }
+                  }
+                }
+              },
+              "novelty": { "enum": ["new", "update", "repeat"] },
+              "is_rumor": { "type": "boolean" },
+              "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+              "score": { "type": "number", "minimum": 0 },
+              "evidence_id": { "type": "string" }
+            }
+          }
+        },
+        "market_moves": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["instrument_code", "trade_date", "status", "explained_by"],
+            "properties": {
+              "instrument_code": { "type": "string" },
+              "trade_date": { "type": "string", "format": "date" },
+              "change_pct": { "$ref": "#/$defs/num" },
+              "zscore": { "$ref": "#/$defs/num" },
+              "status": { "enum": ["explained", "unexplained"] },
+              "explained_by": { "type": "array", "items": { "type": "integer" }, "description": "news[].cluster_id" }
+            }
+          }
+        },
+        "calendar": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["code", "name", "segment", "scheduled_at", "importance"],
+            "additionalProperties": false,
+            "properties": {
+              "code": { "type": "string" },
+              "name": { "type": "string" },
+              "segment": { "$ref": "#/$defs/segment" },
+              "scheduled_at": { "type": "string" },
+              "importance": { "type": "integer", "minimum": 1, "maximum": 3 }
+            }
+          }
+        },
+        "risks": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "required": ["segment", "description", "direction", "likelihood"],
+            "additionalProperties": false,
+            "properties": {
+              "segment": { "$ref": "#/$defs/segment" },
+              "description": { "type": "string", "maxLength": 400 },
+              "direction": { "enum": ["up", "down", "uncertain"] },
+              "likelihood": { "enum": ["low", "medium", "high"] },
+              "evidence_ids": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    }
+  }
+}

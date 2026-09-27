@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:a1:schema:agent-report-envelope:1",
+  "title": "Ajan rapor zarfı",
+  "description": "Veri analiz ajanına rapor gönderen tüm ajanların ortak formatı. Alan adına özgü veri 'payload' içindedir; analist ajan zarfı okuyarak farklı ajanların bulgularını karşılaştırabilir.",
+  "type": "object",
+  "required": ["schema_version", "report_id", "agent", "report_type", "generated_at", "as_of", "priority", "language", "title", "summary", "findings", "evidence", "data_quality", "payload"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "pattern": "^1\\.[0-9]+$", "description": "Zarf sürümü. Geriye uyumlu eklemelerde küçük sürüm artar." },
+    "report_id": { "type": "string", "format": "uuid", "description": "Tekil rapor kimliği; alıcı tarafta idempotency anahtarı." },
+    "supersedes": { "type": ["string", "null"], "format": "uuid", "description": "Bu rapor bir öncekinin düzeltmesiyse eski raporun kimliği." },
+    "agent": {
+      "type": "object",
+      "required": ["id", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9-]+$", "examples": ["energy-news", "fx-macro"] },
+        "version": { "type": "string" },
+        "run_id": { "type": "string", "description": "Üreten iş akışı çalıştırmasının kimliği (izleme için)." }
+      }
+    },
+    "report_type": { "type": "string", "pattern": "^[a-z_]+$" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "as_of": { "type": "string", "format": "date-time", "description": "Raporun yansıttığı veri kesim zamanı." },
+    "period": {
+      "type": "object",
+      "required": ["start", "end"],
+      "additionalProperties": false,
+      "properties": {
+        "start": { "type": "string", "format": "date-time" },
+        "end": { "type": "string", "format": "date-time" }
+      }
+    },
+    "priority": { "enum": ["low", "normal", "high", "critical"] },
+    "language": { "type": "string", "pattern": "^[a-z]{2}$" },
+    "title": { "type": "string", "maxLength": 200 },
+    "summary": { "type": "string", "maxLength": 3000, "description": "İnsan ve LLM için kısa anlatı. Sayılar yalnızca evidence içindeki verilerden gelir." },
+    "findings": {
+      "type": "array",
+      "maxItems": 20,
+      "items": { "$ref": "#/$defs/finding" }
+    },
+    "evidence": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/evidence" }
+    },
+    "data_quality": {
+      "type": "object",
+      "required": ["status", "stale_inputs", "failed_sources"],
+      "additionalProperties": false,
+      "properties": {
+        "status": { "enum": ["ok", "degraded", "poor"] },
+        "stale_inputs": { "type": "array", "items": { "type": "string" } },
+        "failed_sources": { "type": "array", "items": { "type": "string" } },
+        "notes": { "type": "string" }
+      }
+    },
+    "payload": { "type": "object", "description": "Ajana özgü içerik (ör. enerji için energy-report.schema.json)." }
+  },
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "description": "Tek bir çıkarım. Analist ajan farklı ajanların bulgularını 'tags' üzerinden eşleştirir.",
+      "required": ["id", "topic", "title", "statement", "direction", "strength", "confidence", "horizon", "tags", "evidence_ids"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^f[0-9]+$" },
+        "topic": { "type": "string" },
+        "title": { "type": "string", "maxLength": 160 },
+        "statement": { "type": "string", "maxLength": 1200 },
+        "direction": { "enum": ["up", "down", "neutral", "mixed", "uncertain"], "description": "Konunun fiyat/değer yönü beklentisi." },
+        "strength": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "horizon": { "enum": ["intraday", "short", "medium", "long"], "description": "short ≤ 1 hafta, medium 1-3 ay, long > 3 ay." },
+        "tags": {
+          "type": "array",
+          "description": "Ortak sözlük: tür:değer (ör. commodity:brent, region:TR, fx:USDTRY, macro:TR_CPI, event:supply_outage).",
+          "items": { "type": "string", "pattern": "^[a-z_]+:[A-Za-z0-9_.\\-/]+$" }
+        },
+        "evidence_ids": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "required": ["id", "kind", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "description": "Rapor içinde tekil; ör. px:BRENT_SPOT:2026-09-25, news:1234" },
+        "kind": { "enum": ["price", "derived", "indicator", "news", "calendar", "report"] },
+        "source": { "type": "string" },
+        "title": { "type": "string" },
+        "url": { "type": ["string", "null"] },
+        "value": { "type": ["number", "null"] },
+        "unit": { "type": ["string", "null"] },
+        "observed_at": { "type": ["string", "null"], "description": "Verinin ait olduğu an ya da tarih, haberin yayın zamanı." }
+      }
+    }
+  }
+}

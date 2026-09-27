@@ -1,0 +1,521 @@
+{
+  "schema_version": "1.0",
+  "report_id": "6f1c2a4e-8d3b-4f0a-9c1e-2b7d5e8f9a10",
+  "supersedes": null,
+  "agent": {
+    "id": "energy-news",
+    "version": "0.1.0",
+    "run_id": "n8n-exec-12345"
+  },
+  "report_type": "morning_brief",
+  "generated_at": "2026-09-26T08:02:11Z",
+  "as_of": "2026-09-26T08:00:00+00:00",
+  "period": {
+    "start": "2026-09-24T08:00:00Z",
+    "end": "2026-09-26T08:00:00Z"
+  },
+  "priority": "high",
+  "language": "tr",
+  "title": "ÖRNEK (sentetik veri) — Sabah bülteni 26 Eylül 2026",
+  "summary": "Brent spot 72,70 USD/varil ile günü %5,55 yükselişle kapattı; hareket son 60 günün oynaklığına göre olağan dışı (z-skor 11,09). Yükseliş Libya'daki saha kesintisiyle uyumlu; OPEC+'nın ekim artış kararı ise ters yönde. WTI aynı gün yatay kaldığı için Brent-WTI farkı 7,91 USD/varile açıldı. ABD ham petrol stokları beklenti dışı arttı. Dizel marjı (ULSD crack) 24,51 USD/varile geriledi.",
+  "findings": [
+    {
+      "id": "f1",
+      "topic": "crude",
+      "title": "Brent'te arz kesintisi primi",
+      "statement": "Brent spot %5,55 yükseldi (z-skor 11,09). Hareket Libya kesintisi haberiyle açıklanıyor; WTI'nin eşlik etmemesi etkinin Atlantik havzasına özgü olduğuna işaret ediyor.",
+      "direction": "up",
+      "strength": 2,
+      "confidence": 0.7,
+      "horizon": "short",
+      "tags": [
+        "commodity:brent",
+        "region:LY",
+        "event:supply_outage"
+      ],
+      "evidence_ids": [
+        "px:BRENT_SPOT:2026-09-25",
+        "news:3",
+        "dm:BRENT_WTI_SPOT:2026-09-25"
+      ]
+    },
+    {
+      "id": "f2",
+      "topic": "crude",
+      "title": "OPEC+ artışı ve stok artışı yukarı yönü sınırlıyor",
+      "statement": "OPEC+ ekim üretim artışı ve ABD ticari stoklarındaki beklenti dışı artış orta vadede fiyat üzerinde aşağı yönlü baskı oluşturuyor.",
+      "direction": "down",
+      "strength": 1,
+      "confidence": 0.6,
+      "horizon": "medium",
+      "tags": [
+        "commodity:brent",
+        "commodity:wti",
+        "event:supply_opec_policy",
+        "event:inventories_data"
+      ],
+      "evidence_ids": [
+        "news:1",
+        "ind:US_CRUDE_STOCKS:2026-09-18"
+      ]
+    },
+    {
+      "id": "f3",
+      "topic": "refined_products",
+      "title": "Dizel marjı geriledi",
+      "statement": "ULSD crack 24,51 USD/varile indi; ham petroldeki yükselişin ürün fiyatlarına yansımaması marjı daralttı. Türkiye motorin zammı haberi tek ve düşük güvenilirlikli kaynaktan geldi, doğrulanmadı.",
+      "direction": "down",
+      "strength": 1,
+      "confidence": 0.5,
+      "horizon": "short",
+      "tags": [
+        "commodity:diesel",
+        "region:TR",
+        "region:US"
+      ],
+      "evidence_ids": [
+        "dm:ULSD_CRACK_NYH:2026-09-25",
+        "news:2"
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "id": "px:BRENT_SPOT:2026-09-25",
+      "kind": "price",
+      "source": "eia",
+      "title": "Brent spot (Europe Brent)",
+      "value": 72.7,
+      "unit": "USD/bbl",
+      "observed_at": "2026-09-25"
+    },
+    {
+      "id": "px:WTI_SPOT:2026-09-25",
+      "kind": "price",
+      "source": "eia",
+      "title": "WTI Cushing spot",
+      "value": 64.79,
+      "unit": "USD/bbl",
+      "observed_at": "2026-09-25"
+    },
+    {
+      "id": "px:EURTRY:2026-09-25",
+      "kind": "price",
+      "source": "tcmb",
+      "title": "EUR/TRY (TCMB döviz alış)",
+      "value": 48.78,
+      "unit": "TRY/EUR",
+      "observed_at": "2026-09-25"
+    },
+    {
+      "id": "px:HH_SPOT:2026-09-25",
+      "kind": "price",
+      "source": "eia",
+      "title": "Henry Hub spot",
+      "value": 2.96,
+      "unit": "USD/MMBtu",
+      "observed_at": "2026-09-25"
+    },
+    {
+      "id": "px:TR_PTF_BASE:2026-09-25",
+      "kind": "price",
+      "source": "epias",
+      "title": "Türkiye PTF günlük ortalama (baz yük)",
+      "value": 2852.41,
+      "unit": "TRY/MWh",
+      "observed_at": "2026-09-25"
+    },
+    {
+      "id": "px:ULSD_NYH_SPOT:2026-09-25",
+      "kind": "price",
+      "source": "eia",
+      "title": "ULSD New York Harbor spot",
+      "value": 2.31,
+      "unit": "USD/gal",
+      "observed_at": "2026-09-25"
+    },
+    {
+      "id": "dm:BRENT_WTI_SPOT:2026-09-25",
+      "kind": "derived",
+      "source": "energy.derived_metrics",
+      "title": "Brent-WTI spot farkı",
+      "value": 7.91,
+      "unit": "USD/bbl",
+      "observed_at": "2026-09-25"
+    },
+    {
+      "id": "dm:TR_PTF_EUR:2026-09-25",
+      "kind": "derived",
+      "source": "energy.derived_metrics",
+      "title": "Türkiye PTF (EUR)",
+      "value": 58.48,
+      "unit": "EUR/MWh",
+      "observed_at": "2026-09-25"
+    },
+    {
+      "id": "dm:ULSD_CRACK_NYH:2026-09-25",
+      "kind": "derived",
+      "source": "energy.derived_metrics",
+      "title": "ULSD crack (NY Harbor spot - Brent spot)",
+      "value": 24.51,
+      "unit": "USD/bbl",
+      "observed_at": "2026-09-25"
+    },
+    {
+      "id": "ind:US_CRUDE_STOCKS:2026-09-18",
+      "kind": "indicator",
+      "source": "eia",
+      "title": "ABD ticari ham petrol stokları (SPR hariç)",
+      "value": 421011,
+      "unit": "Mbbl",
+      "observed_at": "2026-09-18"
+    },
+    {
+      "id": "news:3",
+      "kind": "news",
+      "source": "aa_energy",
+      "title": "Libya'da petrol sahası saldırı nedeniyle üretimi durdurdu",
+      "url": "https://x/5",
+      "observed_at": "2026-09-25T13:00:00+00:00"
+    },
+    {
+      "id": "news:1",
+      "kind": "news",
+      "source": "aa_energy",
+      "title": "OPEC+ ekim ayında üretimi günlük 137 bin varil artırma kararı",
+      "url": "https://x/1",
+      "observed_at": "2026-09-25T09:00:00+00:00"
+    },
+    {
+      "id": "news:2",
+      "kind": "news",
+      "source": "gdelt",
+      "title": "EPDK motorine zam geldiğini duyurdu",
+      "url": "https://x/4",
+      "observed_at": "2026-09-25T11:00:00+00:00"
+    }
+  ],
+  "data_quality": {
+    "status": "degraded",
+    "stale_inputs": [
+      "EUA_AUCTION",
+      "USDTRY",
+      "DE_DA_BASE",
+      "GASOLINE_NYH_SPOT",
+      "JET_USGC_SPOT"
+    ],
+    "failed_sources": [],
+    "notes": "Lisanslı vadeli fiyatlar (ICE/NYMEX, TTF, EUA) henüz bağlı değil; spot seriler EIA'dan haftalık gecikmeyle gelir."
+  },
+  "payload": {
+    "market_snapshot": [
+      {
+        "name": "Brent spot (Europe Brent)",
+        "unit": "USD/bbl",
+        "as_of": "2026-09-25",
+        "value": 72.7,
+        "region": "GLOBAL",
+        "source": "eia",
+        "segment": "crude",
+        "is_stale": false,
+        "change_1d": 3.824,
+        "zscore_1d": 11.09,
+        "instrument": "BRENT_SPOT",
+        "evidence_id": "px:BRENT_SPOT:2026-09-25",
+        "change_1d_pct": 5.55,
+        "change_5d_pct": 3.09,
+        "change_20d_pct": 6.11
+      },
+      {
+        "name": "WTI Cushing spot",
+        "unit": "USD/bbl",
+        "as_of": "2026-09-25",
+        "value": 64.79,
+        "region": "US",
+        "source": "eia",
+        "segment": "crude",
+        "is_stale": false,
+        "change_1d": -0.1643,
+        "zscore_1d": -0.51,
+        "instrument": "WTI_SPOT",
+        "evidence_id": "px:WTI_SPOT:2026-09-25",
+        "change_1d_pct": -0.25,
+        "change_5d_pct": -2.56,
+        "change_20d_pct": 0.27
+      },
+      {
+        "name": "EUR/TRY (TCMB döviz alış)",
+        "unit": "TRY/EUR",
+        "as_of": "2026-09-25",
+        "value": 48.78,
+        "region": "TR",
+        "source": "tcmb",
+        "segment": "fx",
+        "is_stale": false,
+        "change_1d": 0.01,
+        "zscore_1d": 1.23,
+        "instrument": "EURTRY",
+        "evidence_id": "px:EURTRY:2026-09-25",
+        "change_1d_pct": 0.02,
+        "change_5d_pct": 0.14,
+        "change_20d_pct": 0.58
+      },
+      {
+        "name": "Henry Hub spot",
+        "unit": "USD/MMBtu",
+        "as_of": "2026-09-25",
+        "value": 2.96,
+        "region": "US",
+        "source": "eia",
+        "segment": "natural_gas",
+        "is_stale": false,
+        "change_1d": 0.0322,
+        "zscore_1d": 0.89,
+        "instrument": "HH_SPOT",
+        "evidence_id": "px:HH_SPOT:2026-09-25",
+        "change_1d_pct": 1.1,
+        "change_5d_pct": 5.68,
+        "change_20d_pct": -7.31
+      },
+      {
+        "name": "Türkiye PTF günlük ortalama (baz yük)",
+        "unit": "TRY/MWh",
+        "as_of": "2026-09-25",
+        "value": 2852.41,
+        "region": "TR",
+        "source": "epias",
+        "segment": "power",
+        "is_stale": false,
+        "change_1d": -43.1012,
+        "zscore_1d": -0.75,
+        "instrument": "TR_PTF_BASE",
+        "evidence_id": "px:TR_PTF_BASE:2026-09-25",
+        "change_1d_pct": -1.49,
+        "change_5d_pct": -0.45,
+        "change_20d_pct": 3.32
+      },
+      {
+        "name": "ULSD New York Harbor spot",
+        "unit": "USD/gal",
+        "as_of": "2026-09-25",
+        "value": 2.31,
+        "region": "US",
+        "source": "eia",
+        "segment": "refined_products",
+        "is_stale": false,
+        "change_1d": 0.007,
+        "zscore_1d": 0.87,
+        "instrument": "ULSD_NYH_SPOT",
+        "evidence_id": "px:ULSD_NYH_SPOT:2026-09-25",
+        "change_1d_pct": 0.3,
+        "change_5d_pct": 2.07,
+        "change_20d_pct": -0.52
+      }
+    ],
+    "derived_metrics": [
+      {
+        "code": "BRENT_WTI_SPOT",
+        "name": "Brent-WTI spot farkı",
+        "unit": "USD/bbl",
+        "as_of": "2026-09-25",
+        "value": 7.91,
+        "segment": "crude",
+        "change_1d": 3.99,
+        "evidence_id": "dm:BRENT_WTI_SPOT:2026-09-25"
+      },
+      {
+        "code": "TR_PTF_EUR",
+        "name": "Türkiye PTF (EUR)",
+        "unit": "EUR/MWh",
+        "as_of": "2026-09-25",
+        "value": 58.48,
+        "segment": "power",
+        "change_1d": -0.9,
+        "evidence_id": "dm:TR_PTF_EUR:2026-09-25"
+      },
+      {
+        "code": "ULSD_CRACK_NYH",
+        "name": "ULSD crack (NY Harbor spot - Brent spot)",
+        "unit": "USD/bbl",
+        "as_of": "2026-09-25",
+        "value": 24.51,
+        "segment": "refined_products",
+        "change_1d": -3.53,
+        "evidence_id": "dm:ULSD_CRACK_NYH:2026-09-25"
+      }
+    ],
+    "indicators": [
+      {
+        "code": "US_CRUDE_STOCKS",
+        "name": "ABD ticari ham petrol stokları (SPR hariç)",
+        "unit": "Mbbl",
+        "value": 421011,
+        "change": 5953,
+        "segment": "crude",
+        "surprise": 7453,
+        "period_end": "2026-09-18",
+        "price_sign": -1,
+        "evidence_id": "ind:US_CRUDE_STOCKS:2026-09-18",
+        "released_at": "2026-09-23T14:30:00+00:00",
+        "surprise_basis": "consensus",
+        "consensus_change": -1500
+      }
+    ],
+    "news": [
+      {
+        "score": 1.248,
+        "impacts": [
+          {
+            "horizon": "short",
+            "segment": "crude",
+            "magnitude": 3,
+            "instruments": [
+              "BRENT_M1"
+            ],
+            "price_direction": "up"
+          }
+        ],
+        "novelty": "new",
+        "regions": [],
+        "sources": [
+          {
+            "url": "https://x/5",
+            "source": "aa_energy"
+          }
+        ],
+        "headline": "Libya'da petrol sahası saldırı nedeniyle üretimi durdurdu",
+        "is_rumor": false,
+        "segments": [
+          "crude"
+        ],
+        "best_tier": 2,
+        "cluster_id": 3,
+        "confidence": 0.9,
+        "event_type": "supply_outage",
+        "summary_tr": "Libya'da bir petrol sahası silahlı saldırı sonrası üretimi durdurdu.",
+        "evidence_id": "news:3",
+        "source_count": 1,
+        "first_seen_at": "2026-09-25T13:00:00+00:00"
+      },
+      {
+        "score": 0.988,
+        "impacts": [
+          {
+            "horizon": "short",
+            "segment": "crude",
+            "magnitude": 2,
+            "instruments": [
+              "BRENT_M1"
+            ],
+            "price_direction": "down"
+          }
+        ],
+        "novelty": "new",
+        "regions": [
+          "GLOBAL"
+        ],
+        "sources": [
+          {
+            "url": "https://x/1",
+            "source": "aa_energy"
+          },
+          {
+            "url": "https://x/2",
+            "source": "rigzone"
+          },
+          {
+            "url": "https://x/3",
+            "source": "opec"
+          }
+        ],
+        "headline": "OPEC+ ekim ayında üretimi günlük 137 bin varil artırma kararı",
+        "is_rumor": false,
+        "segments": [
+          "crude"
+        ],
+        "best_tier": 1,
+        "cluster_id": 1,
+        "confidence": 0.8,
+        "event_type": "supply_opec_policy",
+        "summary_tr": "OPEC+ ekim üretim hedefini günlük 137 bin varil artırdı.",
+        "evidence_id": "news:1",
+        "source_count": 3,
+        "first_seen_at": "2026-09-25T09:00:00+00:00"
+      },
+      {
+        "score": 0.164,
+        "impacts": [
+          {
+            "horizon": "short",
+            "segment": "refined_products",
+            "magnitude": 1,
+            "instruments": [],
+            "price_direction": "up"
+          }
+        ],
+        "novelty": "new",
+        "regions": [
+          "TR"
+        ],
+        "sources": [
+          {
+            "url": "https://x/4",
+            "source": "gdelt"
+          }
+        ],
+        "headline": "EPDK motorine zam geldiğini duyurdu",
+        "is_rumor": false,
+        "segments": [
+          "refined_products"
+        ],
+        "best_tier": 3,
+        "cluster_id": 2,
+        "confidence": 0.6,
+        "event_type": "policy_regulation",
+        "summary_tr": "Motorinin litre fiyatına zam geldiği bildirildi (doğrulanmamış tek kaynak).",
+        "evidence_id": "news:2",
+        "source_count": 1,
+        "first_seen_at": "2026-09-25T11:00:00+00:00"
+      }
+    ],
+    "market_moves": [
+      {
+        "instrument_code": "BRENT_SPOT",
+        "trade_date": "2026-09-25",
+        "change_pct": 5.55,
+        "zscore": 11.09,
+        "status": "explained",
+        "explained_by": [
+          3
+        ]
+      }
+    ],
+    "calendar": [
+      {
+        "code": "EIA_WPSR",
+        "name": "EIA haftalık petrol durum raporu",
+        "segment": "crude",
+        "importance": 3,
+        "scheduled_at": "2026-09-30T14:30:00+00:00"
+      },
+      {
+        "code": "EIA_NGS",
+        "name": "EIA haftalık doğal gaz depolama raporu",
+        "segment": "natural_gas",
+        "importance": 2,
+        "scheduled_at": "2026-10-01T14:30:00+00:00"
+      }
+    ],
+    "risks": [
+      {
+        "segment": "crude",
+        "description": "Libya'daki üretim kesintisinin süresi belirsiz; kısa sürede çözülürse primin geri çekilmesi olası.",
+        "direction": "down",
+        "likelihood": "medium",
+        "evidence_ids": [
+          "news:3"
+        ]
+      }
+    ]
+  }
+}

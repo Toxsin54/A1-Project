@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:a1:schema:energy-news-analysis:1",
+  "title": "Haber kümesi analizi (LLM yapılandırılmış çıktısı)",
+  "description": "Sınıflandırıcı LLM her haber kümesi için bu nesneyi döner. Doğrulamayı geçmeyen çıktı kaydedilmez; bir kez hata mesajıyla tekrar istenir.",
+  "type": "object",
+  "required": ["is_relevant", "event_type", "segments", "regions", "impacts", "novelty", "is_rumor", "confidence", "summary_tr"],
+  "additionalProperties": false,
+  "properties": {
+    "is_relevant": { "type": "boolean", "description": "Beş segmentten birinin fiyatını ya da arz-talebini etkileyebilir mi?" },
+    "event_type": {
+      "enum": [
+        "supply_opec_policy", "supply_outage", "geopolitics_conflict", "sanctions_trade",
+        "inventories_data", "demand_macro", "refining", "lng_shipping", "weather",
+        "power_grid", "renewables", "policy_regulation", "carbon_market", "corporate",
+        "market_positioning", "other"
+      ]
+    },
+    "segments": {
+      "type": "array",
+      "items": { "enum": ["crude", "refined_products", "natural_gas", "power", "carbon"] },
+      "uniqueItems": true
+    },
+    "regions": {
+      "type": "array",
+      "description": "ISO ülke kodu ya da GLOBAL, EU, MENA, ASIA, US_GULF",
+      "items": { "type": "string", "pattern": "^[A-Z_]{2,8}$" },
+      "uniqueItems": true
+    },
+    "entities": {
+      "type": "array",
+      "maxItems": 15,
+      "items": {
+        "type": "object",
+        "required": ["name", "type"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "type": { "enum": ["organization", "company", "country", "facility", "person", "policy", "vessel"] }
+        }
+      }
+    },
+    "impacts": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": ["segment", "instruments", "price_direction", "magnitude", "horizon", "rationale"],
+        "additionalProperties": false,
+        "properties": {
+          "segment": { "enum": ["crude", "refined_products", "natural_gas", "power", "carbon"] },
+          "instruments": { "type": "array", "items": { "type": "string", "pattern": "^[A-Z0-9_]+$" }, "description": "energy.instruments kodları" },
+          "price_direction": { "enum": ["up", "down", "neutral", "uncertain"] },
+          "magnitude": { "type": "integer", "minimum": 0, "maximum": 3, "description": "0 etkisiz, 1 düşük, 2 orta, 3 yüksek" },
+          "horizon": { "enum": ["intraday", "short", "medium", "long"] },
+          "rationale": { "type": "string", "maxLength": 300 }
+        }
+      }
+    },
+    "quantities": {
+      "type": "array",
+      "description": "Haberde geçen sayısal büyüklükler (ör. 137 bin varil/gün). Sadece metinde açıkça geçenler.",
+      "items": {
+        "type": "object",
+        "required": ["value", "unit", "what"],
+        "additionalProperties": false,
+        "properties": {
+          "value": { "type": "number" },
+          "unit": { "type": "string" },
+          "what": { "type": "string" }
+        }
+      }
+    },
+    "novelty": { "enum": ["new", "update", "repeat"] },
+    "is_rumor": { "type": "boolean", "description": "Kaynaksız iddia, 'kaynaklara göre', doğrulanmamış sosyal medya" },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "summary_tr": { "type": "string", "maxLength": 400 }
+  }
+}
