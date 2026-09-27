@@ -209,9 +209,9 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT fn_check_availability($1, $2, $3, $4, $5) AS result;",
+        "query": "SELECT fn_check_availability($1, $2, $3, $4, $5, $6, $7) AS result;",
         "options": {
-          "queryReplacement": "={{ [String($json.args.room_type ?? ''), String($json.args.check_in ?? ''), String($json.args.check_out ?? ''), String($json.args.guests ?? ''), String($json.args.hotel ?? '')] }}"
+          "queryReplacement": "={{ [String($json.args.room_type ?? ''), String($json.args.check_in ?? ''), String($json.args.check_out ?? ''), String($json.args.guests ?? ''), String($json.args.hotel ?? ''), String($json.args.adults ?? ''), [].concat($json.args.children_ages ?? []).join(',')] }}"
         }
       },
       "id": "201a8447-752a-5c63-b2a5-a5af3c1c6caf",
@@ -248,9 +248,9 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT fn_create_reservation($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) AS result;",
+        "query": "SELECT fn_create_reservation($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) AS result;",
         "options": {
-          "queryReplacement": "={{ [String($json.args.room_type ?? ''), String($json.args.customer_name ?? ''), String($json.args.phone || $json.caller_phone || ''), String($json.args.guests ?? ''), String($json.args.check_in ?? ''), String($json.args.check_out ?? ''), String($json.args.notes ?? ''), $json.call_id, String($json.args.hotel ?? ''), String($json.args.email ?? '')] }}"
+          "queryReplacement": "={{ [String($json.args.room_type ?? ''), String($json.args.customer_name ?? ''), String($json.args.phone || $json.caller_phone || ''), String($json.args.guests ?? ''), String($json.args.check_in ?? ''), String($json.args.check_out ?? ''), String($json.args.notes ?? ''), $json.call_id, String($json.args.hotel ?? ''), String($json.args.email ?? ''), String($json.args.adults ?? ''), [].concat($json.args.children_ages ?? []).join(',')] }}"
         }
       },
       "id": "cdd127a9-9357-550b-8e79-2acb5a445b22",
@@ -287,9 +287,9 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT fn_modify_reservation($1, $2, $3, $4, $5) AS result;",
+        "query": "SELECT fn_modify_reservation($1, $2, $3, $4, $5, $6, $7) AS result;",
         "options": {
-          "queryReplacement": "={{ [String($json.args.reservation_id ?? ''), String($json.args.phone || $json.caller_phone || ''), String($json.args.check_in ?? ''), String($json.args.check_out ?? ''), String($json.args.guests ?? '')] }}"
+          "queryReplacement": "={{ [String($json.args.reservation_id ?? ''), String($json.args.phone || $json.caller_phone || ''), String($json.args.check_in ?? ''), String($json.args.check_out ?? ''), String($json.args.guests ?? ''), String($json.args.adults ?? ''), [].concat($json.args.children_ages ?? []).join(',')] }}"
         }
       },
       "id": "b499897a-6eb2-5d14-b652-5ce76510e096",

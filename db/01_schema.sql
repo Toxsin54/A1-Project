@@ -79,6 +79,31 @@ CREATE TABLE IF NOT EXISTS reservations (
 -- Sonradan eklenen alanlar (mevcut veritabanlarında da çalışır)
 ALTER TABLE reservations ADD COLUMN IF NOT EXISTS email text;   -- bilgilendirme e-postası (isteğe bağlı)
 
+-- Çocuk politikası
+ALTER TABLE hotels ADD COLUMN IF NOT EXISTS adult_age       int NOT NULL DEFAULT 12;  -- bu yaş ve üstü yetişkin sayılır
+ALTER TABLE hotels ADD COLUMN IF NOT EXISTS infant_age      int NOT NULL DEFAULT 2;   -- bu yaşın altı bebek: ücretsiz, kapasiteye sayılmaz
+ALTER TABLE hotels ADD COLUMN IF NOT EXISTS min_guest_age   int NOT NULL DEFAULT 0;   -- kabul edilen en küçük yaş (yetişkin otelleri)
+ALTER TABLE hotels ADD COLUMN IF NOT EXISTS extra_adult_pct int NOT NULL DEFAULT 75;  -- oda fiyatına dahil kişi sayısını aşan her yetişkin,
+                                                                                       -- kişi başı fiyatın yüzde kaçını öder
+ALTER TABLE room_types ADD COLUMN IF NOT EXISTS base_occupancy int NOT NULL DEFAULT 2; -- oda fiyatına dahil kişi sayısı
+ALTER TABLE room_types ADD COLUMN IF NOT EXISTS max_adults     int;                    -- boşsa max_guests kadar yetişkin
+
+-- Çocuk fiyat kuralları. Çocuklar yaşa göre büyükten küçüğe sıralanır; oda fiyatına dahil
+-- kişi sayısı dolduktan sonraki ilk çocuk "1. çocuk" olur. Kural yoksa çocuk yetişkin fiyatı öder.
+CREATE TABLE IF NOT EXISTS hotel_child_policies (
+    id          serial PRIMARY KEY,
+    hotel_id    int NOT NULL REFERENCES hotels(id) ON DELETE CASCADE,
+    child_order int,                              -- 1 = 1. çocuk, 2 = 2. çocuk; boş = sıradan bağımsız
+    age_min     int NOT NULL,                     -- dahil, tam yaş (giriş tarihindeki yaş)
+    age_max     int NOT NULL,                     -- dahil
+    price_pct   int NOT NULL CHECK (price_pct BETWEEN 0 AND 100),  -- kişi başı yetişkin fiyatının yüzdesi, 0 = ücretsiz
+    CHECK (age_max >= age_min)
+);
+
+ALTER TABLE reservations ADD COLUMN IF NOT EXISTS adults        int;
+ALTER TABLE reservations ADD COLUMN IF NOT EXISTS children_ages int[] NOT NULL DEFAULT '{}';
+UPDATE reservations SET adults = guests WHERE adults IS NULL;
+
 CREATE INDEX IF NOT EXISTS reservations_active_stay
     ON reservations (room_type_id, check_in, check_out) WHERE status = 'confirmed';
 CREATE INDEX IF NOT EXISTS reservations_phone

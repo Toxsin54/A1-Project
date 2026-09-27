@@ -55,7 +55,13 @@ Müşteri ──telefon──▶ Vapi (STT + LLM + TTS)
   - Değişiklik ve iptal için rezervasyon numarası **ve** rezervasyondaki telefon eşleşmelidir. Telefon verilmezse arayan numara kullanılır.
 - **Hata toleransı.** Hatalı tarih ya da eksik bilgi gelirse fonksiyon hata fırlatmaz, asistana ne sorması gerektiğini söyler. Veritabanı hatasında Vapi'ye yine düzgün bir cevap döner, böylece görüşme askıda kalmaz.
 - **Bildirimler görüşmeyi bekletmez.** SMS, WhatsApp ve e-posta, yanıt Vapi'ye gönderildikten sonra gönderilir. Birinin başarısız olması diğerlerini ve rezervasyonu etkilemez. E-posta sadece müşteri adres verdiyse gider; asistan adresi harf harf teyit eder, geçersiz adreste rezervasyonu oluşturmadan tekrar sorar.
-- **Fiyat.** Gecelik fiyat `room_rates` tablosundaki sezon fiyatından, yoksa `room_types.price_per_night` değerinden gelir. Toplam fiyat gece gece hesaplanır.
+- **Fiyat.** Gecelik oda fiyatı `room_rates` tablosundaki sezon fiyatından, yoksa `room_types.price_per_night` değerinden gelir ve gece gece toplanır. Oda fiyatı `base_occupancy` kadar kişiyi (genelde 2) kapsar; kişi başı fiyat = oda fiyatı / `base_occupancy`.
+- **Çocuk politikası.** Her otelin kuralları `hotels` (`adult_age`, `infant_age`, `min_guest_age`, `extra_adult_pct`) ve `hotel_child_policies` tablolarında durur. Hesap şöyle yapılır:
+  - Çocuklar giriş tarihindeki yaşa göre büyükten küçüğe sıralanır.
+  - `adult_age` ve üstü yetişkin sayılır. `infant_age` altı bebekler ücretsizdir ve kapasiteye sayılmaz.
+  - Oda fiyatına dahil kişi sayısı henüz dolmadıysa çocuk oradaki boş yere yerleşir. Örneğin 1 yetişkin + 1 çocuk oda fiyatı öder.
+  - Sonraki çocuklar "1. çocuk", "2. çocuk" olarak numaralanır ve kişi başı fiyatın `price_pct` yüzdesini öder (0 = ücretsiz). Kural yoksa yetişkin fiyatı öder. `child_order` boş olan kural sıradan bağımsız uygulanır (ör. "her çocuk 0-5 yaş ücretsiz").
+  - Oda fiyatına dahil kişi sayısını aşan yetişkinler kişi başı fiyatın `extra_adult_pct` yüzdesini öder.
 
 ## Kurulum
 
@@ -144,13 +150,13 @@ n8n'in döndüğü yanıt:
 
 | Araç | Parametreler |
 |---|---|
-| `check_availability` | `check_in`, `check_out`, `guests`, `hotel` (ops., otel adı ya da bölge), `room_type` (ops.) |
-| `create_reservation` | `room_type` (sorgu sonucundaki kod), `customer_name`, `guests`, `check_in`, `check_out`, `phone` (ops., yoksa arayan numara), `email` (ops.), `notes` (ops.), `hotel` (ops.) |
-| `modify_reservation` | `reservation_id`, `phone` (ops.), `check_in` / `check_out` / `guests` (değişenler) |
+| `check_availability` | `check_in`, `check_out`, `adults`, `children_ages` (ops., ör. "8, 4"), `hotel` (ops., otel adı ya da bölge), `room_type` (ops.) |
+| `create_reservation` | `room_type` (sorgu sonucundaki kod), `customer_name`, `adults`, `children_ages` (ops.), `check_in`, `check_out`, `phone` (ops., yoksa arayan numara), `email` (ops.), `notes` (ops.), `hotel` (ops.) |
+| `modify_reservation` | `reservation_id`, `phone` (ops.), `check_in` / `check_out` / `adults` / `children_ages` (değişenler; çocukları kaldırmak için "yok") |
 | `cancel_reservation` | `reservation_id`, `phone` (ops.) |
 | `find_reservation` | `phone` (ops.) |
 
-Tarihler `YYYY-AA-GG` formatındadır. Değişiklikte sadece giriş tarihi verilirse gece sayısı korunur.
+Tarihler `YYYY-AA-GG` formatındadır. Eski `guests` (toplam kişi) alanı hâlâ kabul edilir; `adults` yoksa `guests - çocuk sayısı` yetişkin sayılır. Değişiklikte sadece giriş tarihi verilirse gece sayısı korunur.
 
 ## Test
 
@@ -164,7 +170,7 @@ psql "$DATABASE_URL" -f test/antalya-test-db.sql
 
 Supabase gibi bir SQL editörü kullanıyorsanız dosyanın içeriğini yapıştırıp çalıştırmanız yeterli. `db/` altındaki dosyaları değiştirdikten sonra `./test/build_antalya_db.sh` ile yeniden üretin.
 
-| Otel | Bölge | Konsept | Oda tipleri (kişi / oda sayısı / gecelik TL) |
+| Otel | Bölge | Konsept | Oda tipleri (en fazla kişi / oda sayısı / gecelik TL) |
 |---|---|---|---|
 | Lara Deniz Palace | Lara, 5★ | Ultra Her Şey Dahil | Standart 2/40/7.800 · Deluxe Deniz 3/24/10.500 · Aile 4/12/14.500 · Kral Süit 4/2/32.000 |
 | Belek Green Golf & Spa Resort | Belek, 5★ | Ultra Her Şey Dahil | Superior 2/30/9.200 · Golf Deluxe 3/20/11.800 · Aile Süiti 5/10/17.500 · Havuzlu Villa 6/3/42.000 |
@@ -186,6 +192,9 @@ Hazır test senaryoları (telefonda asistana söyleyebilirsiniz):
 | "6-9 Ekim, 4 kişi, aile odası" (otel belirtmeden) | Tüm otellerdeki aile odaları fiyata göre listelenir |
 | "10-13 Kasım, 2 kişi" (hiç tercih yok) | Her otelin en uygun fiyatlı odası listelenir |
 | "30 Aralık - 2 Ocak, Konyaaltı deniz manzaralı" | Yılbaşı fiyatı (gecelik 6.900 TL) uygulanır |
+| "12-15 Ekim, Lara aile odası, 2 yetişkin, çocuklar 10 ve 8 yaş" | 1. çocuk ücretsiz, 2. çocuk %50: 54.375 TL |
+| "12-15 Ekim, Kemer aile odası, 2 yetişkin, çocuklar 8 ve 4 yaş" | 0-5 yaş ücretsiz, 6-11 yaş %50: 29.625 TL |
+| "Kaleiçi, 2 yetişkin ve 7 yaşında çocuk" | Otel 12 yaş altı kabul etmiyor → diğer oteller önerilir |
 | Rezervasyon **100001**, telefon **0555 111 22 33** | Değişiklik testi (Konyaaltı, 15-18 Ekim) |
 | Rezervasyon **100002**, telefon **0555 444 55 66** | İptal testi (Side, 20-25 Ekim) |
 

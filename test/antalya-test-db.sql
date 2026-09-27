@@ -106,6 +106,31 @@ CREATE TABLE IF NOT EXISTS reservations (
 -- Sonradan eklenen alanlar (mevcut veritabanlarında da çalışır)
 ALTER TABLE reservations ADD COLUMN IF NOT EXISTS email text;   -- bilgilendirme e-postası (isteğe bağlı)
 
+-- Çocuk politikası
+ALTER TABLE hotels ADD COLUMN IF NOT EXISTS adult_age       int NOT NULL DEFAULT 12;  -- bu yaş ve üstü yetişkin sayılır
+ALTER TABLE hotels ADD COLUMN IF NOT EXISTS infant_age      int NOT NULL DEFAULT 2;   -- bu yaşın altı bebek: ücretsiz, kapasiteye sayılmaz
+ALTER TABLE hotels ADD COLUMN IF NOT EXISTS min_guest_age   int NOT NULL DEFAULT 0;   -- kabul edilen en küçük yaş (yetişkin otelleri)
+ALTER TABLE hotels ADD COLUMN IF NOT EXISTS extra_adult_pct int NOT NULL DEFAULT 75;  -- oda fiyatına dahil kişi sayısını aşan her yetişkin,
+                                                                                       -- kişi başı fiyatın yüzde kaçını öder
+ALTER TABLE room_types ADD COLUMN IF NOT EXISTS base_occupancy int NOT NULL DEFAULT 2; -- oda fiyatına dahil kişi sayısı
+ALTER TABLE room_types ADD COLUMN IF NOT EXISTS max_adults     int;                    -- boşsa max_guests kadar yetişkin
+
+-- Çocuk fiyat kuralları. Çocuklar yaşa göre büyükten küçüğe sıralanır; oda fiyatına dahil
+-- kişi sayısı dolduktan sonraki ilk çocuk "1. çocuk" olur. Kural yoksa çocuk yetişkin fiyatı öder.
+CREATE TABLE IF NOT EXISTS hotel_child_policies (
+    id          serial PRIMARY KEY,
+    hotel_id    int NOT NULL REFERENCES hotels(id) ON DELETE CASCADE,
+    child_order int,                              -- 1 = 1. çocuk, 2 = 2. çocuk; boş = sıradan bağımsız
+    age_min     int NOT NULL,                     -- dahil, tam yaş (giriş tarihindeki yaş)
+    age_max     int NOT NULL,                     -- dahil
+    price_pct   int NOT NULL CHECK (price_pct BETWEEN 0 AND 100),  -- kişi başı yetişkin fiyatının yüzdesi, 0 = ücretsiz
+    CHECK (age_max >= age_min)
+);
+
+ALTER TABLE reservations ADD COLUMN IF NOT EXISTS adults        int;
+ALTER TABLE reservations ADD COLUMN IF NOT EXISTS children_ages int[] NOT NULL DEFAULT '{}';
+UPDATE reservations SET adults = guests WHERE adults IS NULL;
+
 CREATE INDEX IF NOT EXISTS reservations_active_stay
     ON reservations (room_type_id, check_in, check_out) WHERE status = 'confirmed';
 CREATE INDEX IF NOT EXISTS reservations_phone
@@ -131,6 +156,10 @@ DROP FUNCTION IF EXISTS fn_find_room_type(text);
 DROP FUNCTION IF EXISTS fn_check_availability(text, text, text, text);
 DROP FUNCTION IF EXISTS fn_create_reservation(text, text, text, text, text, text, text, text);
 DROP FUNCTION IF EXISTS fn_create_reservation(text, text, text, text, text, text, text, text, text);
+DROP FUNCTION IF EXISTS fn_create_reservation(text, text, text, text, text, text, text, text, text, text);
+DROP FUNCTION IF EXISTS fn_check_availability(text, text, text, text, text);
+DROP FUNCTION IF EXISTS fn_modify_reservation(text, text, text, text, text);
+DROP FUNCTION IF EXISTS fn_room_options(date, date, int);
 
 -- ---------------------------------------------------------------------
 -- Yardımcılar
@@ -319,12 +348,140 @@ BEGIN
     RETURN NULL;
 END $$;
 
+-- "4, 9 yaş" / "[4, 9]" / "4 ve 9" -> {4,9}
+CREATE OR REPLACE FUNCTION fn_parse_ages(p text)
+RETURNS int[] LANGUAGE sql IMMUTABLE AS $$
+    SELECT COALESCE(array_agg(t.m[1]::int ORDER BY t.ord), '{}')
+    FROM regexp_matches(COALESCE(p, ''), '(\d+)', 'g') WITH ORDINALITY AS t(m, ord);
+$$;
+
+-- "2 yetişkin, 2 çocuk (8 ve 4 yaş)"
+CREATE OR REPLACE FUNCTION fn_party_text(p_adults int, p_ages int[])
+RETURNS text LANGUAGE sql IMMUTABLE AS $$
+    SELECT COALESCE(p_adults::text, '?') || ' yetişkin'
+        || CASE WHEN cardinality(COALESCE(p_ages, '{}')) > 0
+                THEN format(', %s çocuk (%s yaş)', cardinality(p_ages),
+                            regexp_replace(array_to_string(p_ages, ', '), ', ([0-9]+)$', ' ve \1'))
+                ELSE '' END;
+$$;
+
+-- Otelin çocuk politikası, asistanın müşteriye anlatacağı dille
+CREATE OR REPLACE FUNCTION fn_child_policy_text(p_hotel_id int)
+RETURNS text LANGUAGE sql STABLE AS $$
+    SELECT format('%s çocuk politikası: ', h.name)
+        || CASE WHEN h.min_guest_age > 0
+                THEN format('%s yaş altı misafir kabul edilmiyor.', h.min_guest_age)
+                ELSE format('%s yaş altı bebekler ücretsiz; %s yaş ve üstü yetişkin sayılır', h.infant_age, h.adult_age)
+                     || COALESCE('; ' || (SELECT string_agg(
+                            format('%s%s-%s yaş %s',
+                                   CASE WHEN cp.child_order IS NULL THEN 'her çocuk ' ELSE cp.child_order || '. çocuk ' END,
+                                   cp.age_min, cp.age_max,
+                                   CASE cp.price_pct WHEN 0 THEN 'ücretsiz' ELSE '%' || cp.price_pct || ' öder' END),
+                            ', ' ORDER BY cp.child_order NULLS FIRST, cp.age_min)
+                         FROM hotel_child_policies cp WHERE cp.hotel_id = h.id), '')
+                     || '. İndirimler oda fiyatına dahil kişilerin (genelde 2 yetişkin) yanında kalan çocuklara uygulanır.'
+           END
+    FROM hotels h WHERE h.id = p_hotel_id;
+$$;
+
+-- Bir oda tipi için kişi dağılımına göre fiyat teklifi.
+--   Oda fiyatı base_occupancy kişiyi kapsar; kişi başı fiyat = oda fiyatı / base_occupancy.
+--   Fazla yetişkin: kişi başı * extra_adult_pct. Çocuklar büyükten küçüğe; önce boş kalan
+--   oda fiyatı kişilerini doldurur, sonrakiler 1., 2. çocuk olarak politikaya göre ödenir.
+--   Bebekler (infant_age altı) ücretsizdir ve kapasiteye sayılmaz.
+-- Döner: {fits, reason, total, note}
+CREATE OR REPLACE FUNCTION fn_stay_quote(p_room_type_id int, p_in date, p_out date,
+                                         p_adults int, p_ages int[])
+RETURNS jsonb LANGUAGE plpgsql STABLE AS $$
+DECLARE
+    rt        room_types;
+    h         hotels;
+    v_room    numeric := fn_stay_price(p_room_type_id, p_in, p_out);
+    v_adults  int;
+    v_kids    int[];
+    v_infants int[];
+    v_rest    int[];
+    v_free    int;
+    v_extra   int;
+    v_pct     numeric := 0;
+    v_note    text[] := '{}';
+    a         int;
+    k         int := 0;
+    v_p       int;
+BEGIN
+    SELECT * INTO rt FROM room_types WHERE id = p_room_type_id;
+    SELECT * INTO h FROM hotels WHERE id = rt.hotel_id;
+
+    IF p_adults IS NULL THEN   -- kişi bilgisi yok: oda fiyatı
+        RETURN jsonb_build_object('fits', true, 'total', v_room, 'note', NULL);
+    END IF;
+
+    v_adults := p_adults + (SELECT count(*) FROM unnest(COALESCE(p_ages, '{}')) x WHERE x >= h.adult_age);
+    SELECT COALESCE(array_agg(x ORDER BY x DESC), '{}') INTO v_kids
+    FROM unnest(COALESCE(p_ages, '{}')) x WHERE x < h.adult_age;
+
+    IF v_adults < 1 THEN
+        RETURN jsonb_build_object('fits', false, 'reason', 'Rezervasyonda en az bir yetişkin olmalı.');
+    END IF;
+    IF EXISTS (SELECT 1 FROM unnest(v_kids) x WHERE x < h.min_guest_age) THEN
+        RETURN jsonb_build_object('fits', false,
+            'reason', format('%s %s yaş altı misafir kabul etmiyor.', h.name, h.min_guest_age));
+    END IF;
+
+    SELECT COALESCE(array_agg(x ORDER BY x DESC), '{}') INTO v_infants FROM unnest(v_kids) x WHERE x < h.infant_age;
+    SELECT COALESCE(array_agg(x ORDER BY x DESC), '{}') INTO v_rest    FROM unnest(v_kids) x WHERE x >= h.infant_age;
+
+    IF v_adults + cardinality(v_rest) > rt.max_guests OR v_adults > COALESCE(rt.max_adults, rt.max_guests) THEN
+        RETURN jsonb_build_object('fits', false,
+            'reason', format('%s - %s en fazla %s kişi%s alıyor (bebekler hariç); %s için uygun değil.',
+                             h.name, rt.name, rt.max_guests,
+                             CASE WHEN rt.max_adults IS NOT NULL THEN ', en fazla ' || rt.max_adults || ' yetişkin' ELSE '' END,
+                             fn_party_text(p_adults, p_ages)));
+    END IF;
+
+    v_extra := greatest(v_adults - rt.base_occupancy, 0);
+    IF v_extra > 0 THEN
+        v_pct := v_extra * h.extra_adult_pct;
+        v_note := v_note || format('%s ek yetişkin kişi başı fiyatın %%%s''i', v_extra, h.extra_adult_pct);
+    END IF;
+
+    v_free := greatest(rt.base_occupancy - v_adults, 0);
+    FOREACH a IN ARRAY v_rest LOOP
+        IF v_free > 0 THEN
+            v_free := v_free - 1;
+            v_note := v_note || format('%s yaş çocuk oda fiyatına dahil', a);
+            CONTINUE;
+        END IF;
+        k := k + 1;
+        SELECT cp.price_pct INTO v_p
+        FROM hotel_child_policies cp
+        WHERE cp.hotel_id = h.id AND (cp.child_order = k OR cp.child_order IS NULL)
+          AND a BETWEEN cp.age_min AND cp.age_max
+        ORDER BY cp.child_order NULLS LAST, cp.price_pct
+        LIMIT 1;
+        v_p := COALESCE(v_p, 100);
+        v_pct := v_pct + v_p;
+        v_note := v_note || format('%s. çocuk (%s yaş) %s', k, a,
+                                   CASE v_p WHEN 0 THEN 'ücretsiz' WHEN 100 THEN 'yetişkin fiyatı' ELSE '%' || v_p || ' öder' END);
+        v_p := NULL;
+    END LOOP;
+    FOREACH a IN ARRAY v_infants LOOP
+        v_note := v_note || format('bebek (%s yaş) ücretsiz', a);
+    END LOOP;
+
+    RETURN jsonb_build_object(
+        'fits', true,
+        'total', round(v_room + v_room / rt.base_occupancy * v_pct / 100),
+        'note', NULLIF(array_to_string(v_note, ', '), ''));
+END $$;
+
 -- Rezervasyon özeti (asistan ve SMS için ortak)
 CREATE OR REPLACE FUNCTION fn_reservation_summary(r reservations)
 RETURNS text LANGUAGE sql STABLE AS $$
-    SELECT format('%s (%s) - %s | Giriş: %s | Çıkış: %s (%s gece) | %s kişi | %s | Toplam: %s',
+    SELECT format('%s (%s) - %s | Giriş: %s | Çıkış: %s (%s gece) | %s | %s | Toplam: %s',
                   h.name, h.region, rt.name, fn_tr_date(r.check_in), fn_tr_date(r.check_out), r.nights,
-                  r.guests, h.board_type, fn_money(r.total_price, rt.currency))
+                  fn_party_text(COALESCE(r.adults, r.guests), r.children_ages), h.board_type,
+                  fn_money(r.total_price, rt.currency))
     FROM room_types rt
     JOIN hotels h ON h.id = rt.hotel_id
     WHERE rt.id = r.room_type_id;
@@ -350,7 +507,7 @@ $$;
 
 
 -- Belirtilen tarihlerde tüm aktif oda tiplerinin durumu (jsonb dizi)
-CREATE OR REPLACE FUNCTION fn_room_options(p_in date, p_out date, p_guests int)
+CREATE OR REPLACE FUNCTION fn_room_options(p_in date, p_out date, p_adults int, p_ages int[])
 RETURNS jsonb LANGUAGE sql STABLE AS $$
     SELECT COALESCE(jsonb_agg(t ORDER BY t.total_price, t.hotel_sort, t.sort_order), '[]'::jsonb)
     FROM (
@@ -358,11 +515,14 @@ RETURNS jsonb LANGUAGE sql STABLE AS $$
                rt.max_guests, rt.currency, rt.sort_order, h.sort_order AS hotel_sort,
                fn_hotel_label(h) AS hotel_label, h.name AS hotel_name,
                fn_rooms_left(rt.id, p_in, p_out)                          AS rooms_left,
-               fn_stay_price(rt.id, p_in, p_out)                          AS total_price,
-               round(fn_stay_price(rt.id, p_in, p_out) / (p_out - p_in))  AS avg_nightly,
-               (p_guests IS NULL OR rt.max_guests >= p_guests)            AS fits_guests
+               (q.q->>'total')::numeric                                   AS total_price,
+               round((q.q->>'total')::numeric / (p_out - p_in))           AS avg_nightly,
+               (q.q->>'fits')::boolean                                    AS fits_guests,
+               q.q->>'reason'                                             AS fit_reason,
+               q.q->>'note'                                               AS price_note
         FROM room_types rt
         JOIN hotels h ON h.id = rt.hotel_id
+        CROSS JOIN LATERAL (SELECT fn_stay_quote(rt.id, p_in, p_out, p_adults, p_ages) AS q) q
         WHERE rt.active AND h.active
     ) t;
 $$;
@@ -370,9 +530,10 @@ $$;
 -- Asistana okunacak tek seçenek satırı
 CREATE OR REPLACE FUNCTION fn_option_line(o jsonb, i int)
 RETURNS text LANGUAGE sql IMMUTABLE AS $$
-    SELECT format('%s) %s - %s [room_type="%s"] - en fazla %s kişi - toplam %s (gecelik ortalama %s) - kalan oda %s - özellikler: %s. ',
+    SELECT format('%s) %s - %s [room_type="%s"] - en fazla %s kişi - toplam %s%s (gecelik ortalama %s) - kalan oda %s - özellikler: %s. ',
                   i, o->>'hotel_label', o->>'name', o->>'code', o->>'max_guests',
                   fn_money((o->>'total_price')::numeric, o->>'currency'),
+                  COALESCE(' [' || (o->>'price_note') || ']', ''),
                   fn_money((o->>'avg_nightly')::numeric, o->>'currency'),
                   o->>'rooms_left',
                   (SELECT string_agg(f, ', ') FROM jsonb_array_elements_text(o->'features') f));
@@ -429,7 +590,7 @@ BEGIN
         || format(v_row, 'Konsept', fn_html(h.board_type))
         || format(v_row, 'Giriş', fn_tr_date(r.check_in))
         || format(v_row, 'Çıkış', fn_tr_date(r.check_out))
-        || format(v_row, 'Konaklama', r.nights || ' gece, ' || r.guests || ' kişi')
+        || format(v_row, 'Konaklama', r.nights || ' gece, ' || fn_party_text(COALESCE(r.adults, r.guests), r.children_ages))
         || format(v_row, 'Toplam tutar', '<b>' || fn_money(r.total_price, rt.currency) || '</b>')
         || CASE WHEN r.notes IS NOT NULL THEN format(v_row, 'Notunuz', fn_html(r.notes)) ELSE '' END
         || '</table>'
@@ -448,12 +609,15 @@ END $$;
 -- =====================================================================
 CREATE OR REPLACE FUNCTION fn_check_availability(p_room_type text, p_check_in text,
                                                  p_check_out text, p_guests text,
-                                                 p_hotel text DEFAULT NULL)
+                                                 p_hotel text DEFAULT NULL,
+                                                 p_adults text DEFAULT NULL, p_children text DEFAULT NULL)
 RETURNS jsonb LANGUAGE plpgsql STABLE AS $$
 DECLARE
     v_in      date := fn_try_date(p_check_in);
     v_out     date := fn_try_date(p_check_out);
-    v_guests  int  := fn_try_int(p_guests);
+    v_ages    int[] := fn_parse_ages(p_children);
+    v_adults  int  := COALESCE(fn_try_int(p_adults), fn_try_int(p_guests) - cardinality(fn_parse_ages(p_children)));
+    v_guests  int  := v_adults + cardinality(v_ages);
     v_err     text;
     v_scope   int[];          -- NULL = tüm oteller
     v_scope_label text;
@@ -474,13 +638,13 @@ BEGIN
     IF v_err IS NOT NULL THEN
         RETURN jsonb_build_object('ok', false, 'message', v_err, 'send_sms', false);
     END IF;
-    IF v_guests IS NOT NULL AND v_guests < 1 THEN
+    IF v_adults IS NOT NULL AND v_adults < 1 THEN
         RETURN jsonb_build_object('ok', false, 'send_sms', false,
-                                  'message', 'Kişi sayısı en az 1 olmalı. Müşteriden kişi sayısını öğren.');
+                                  'message', 'En az 1 yetişkin olmalı. Müşteriden yetişkin sayısını ve çocukların yaşlarını öğren.');
     END IF;
 
     v_stay := format('%s - %s (%s gece%s)', fn_tr_date(v_in), fn_tr_date(v_out), v_out - v_in,
-                     CASE WHEN v_guests IS NOT NULL THEN ', ' || v_guests || ' kişi' ELSE '' END);
+                     CASE WHEN v_adults IS NOT NULL THEN ', ' || fn_party_text(v_adults, v_ages) ELSE '' END);
 
     -- Otel / bölge filtresi
     IF COALESCE(btrim(p_hotel), '') <> '' THEN
@@ -496,7 +660,7 @@ BEGIN
         FROM hotels h WHERE h.id = ANY (v_scope);
     END IF;
 
-    v_all := fn_room_options(v_in, v_out, v_guests);
+    v_all := fn_room_options(v_in, v_out, v_adults, v_ages);
     SELECT COALESCE(jsonb_agg(e ORDER BY (e->>'total_price')::numeric), '[]'::jsonb) INTO v_opts
     FROM jsonb_array_elements(v_all) e
     WHERE v_scope IS NULL OR (e->>'hotel_id')::int = ANY (v_scope);
@@ -524,6 +688,10 @@ BEGIN
                     v_msg := v_msg || fn_option_line(o, i)
                           || CASE WHEN jsonb_array_length(v_hits) = 1 THEN COALESCE(o->>'description', '') || ' ' ELSE '' END;
                 END LOOP;
+                IF cardinality(v_ages) > 0 THEN
+                    v_msg := v_msg || (SELECT string_agg(fn_child_policy_text(hid), ' ')
+                                       FROM (SELECT DISTINCT (e->>'hotel_id')::int AS hid FROM jsonb_array_elements(v_hits) e) d) || ' ';
+                END IF;
                 v_msg := v_msg || 'Müşteriye otel, oda özellikleri ve toplam fiyatı aktar; onay verirse ad-soyad ve telefonu alıp create_reservation aracını ilgili room_type koduyla çağır.';
                 RETURN jsonb_build_object('ok', true, 'available', true, 'send_sms', false,
                                           'message', v_msg, 'options', v_hits);
@@ -532,12 +700,8 @@ BEGIN
             v_reason := CASE
                 WHEN NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v_all) e
                                  WHERE (e->>'id')::int = ANY (v_req) AND (e->>'fits_guests')::boolean)
-                    THEN format('İstenen oda (%s) en fazla %s kişi alıyor; %s kişi için uygun değil.',
-                                (SELECT string_agg(DISTINCT e->>'hotel_name' || ' - ' || (e->>'name'), ', ')
-                                 FROM jsonb_array_elements(v_all) e WHERE (e->>'id')::int = ANY (v_req)),
-                                (SELECT max((e->>'max_guests')::int)
-                                 FROM jsonb_array_elements(v_all) e WHERE (e->>'id')::int = ANY (v_req)),
-                                v_guests)
+                    THEN (SELECT string_agg(DISTINCT e->>'fit_reason', ' ')
+                          FROM jsonb_array_elements(v_all) e WHERE (e->>'id')::int = ANY (v_req))
                 ELSE format('İstenen oda (%s), %s için DOLU.',
                             (SELECT string_agg(DISTINCT e->>'hotel_name' || ' - ' || (e->>'name'), ', ')
                              FROM jsonb_array_elements(v_all) e WHERE (e->>'id')::int = ANY (v_req)),
@@ -597,7 +761,8 @@ BEGIN
     v_msg := COALESCE(v_reason || ' ', '') || CASE
         WHEN v_widened THEN format('%s tarafında %s. DİĞER OTELLERDEKİ SEÇENEKLER (%s): ', v_scope_label,
                                    CASE WHEN NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v_opts) e WHERE (e->>'fits_guests')::boolean)
-                                        THEN v_guests || ' kişiye uygun oda tipi yok'
+                                        THEN 'uygun oda yok (' || COALESCE((SELECT rtrim(e->>'fit_reason', '.') FROM jsonb_array_elements(v_opts) e
+                                                                             WHERE e->>'fit_reason' IS NOT NULL LIMIT 1), 'kapasite') || ')'
                                         ELSE 'bu tarihlerde uygun oda yok' END,
                                    v_stay)
         WHEN v_reason IS NOT NULL THEN 'ALTERNATİFLER (' || v_stay || '): '
@@ -608,7 +773,9 @@ BEGIN
         i := i + 1;
         v_msg := v_msg || fn_option_line(o, i);
     END LOOP;
-    v_msg := v_msg || 'Seçenekleri otel, fiyat ve özellikleriyle müşteriye sun; birini onaylarsa create_reservation aracını ilgili room_type koduyla çağır.';
+    v_msg := v_msg || 'Seçenekleri otel, fiyat ve özellikleriyle müşteriye sun'
+          || CASE WHEN cardinality(v_ages) > 0 THEN ' (köşeli parantezdeki çocuk fiyat bilgisini de açıkla)' ELSE '' END
+          || '; birini onaylarsa create_reservation aracını ilgili room_type koduyla çağır.';
 
     RETURN jsonb_build_object('ok', true, 'available', v_reason IS NULL AND NOT v_widened, 'send_sms', false,
                               'message', v_msg, 'alternatives', v_alts);
@@ -621,14 +788,17 @@ END $$;
 CREATE OR REPLACE FUNCTION fn_create_reservation(p_room_type text, p_customer_name text, p_phone text,
                                                  p_guests text, p_check_in text, p_check_out text,
                                                  p_notes text DEFAULT NULL, p_call_id text DEFAULT NULL,
-                                                 p_hotel text DEFAULT NULL, p_email text DEFAULT NULL)
+                                                 p_hotel text DEFAULT NULL, p_email text DEFAULT NULL,
+                                                 p_adults text DEFAULT NULL, p_children text DEFAULT NULL)
 RETURNS jsonb LANGUAGE plpgsql VOLATILE AS $$
 DECLARE
     v_ids    int[];
     v_email  text := fn_clean_email(p_email);
     v_in     date := fn_try_date(p_check_in);
     v_out    date := fn_try_date(p_check_out);
-    v_guests int  := fn_try_int(p_guests);
+    v_ages   int[] := fn_parse_ages(p_children);
+    v_adults int  := COALESCE(fn_try_int(p_adults), fn_try_int(p_guests) - cardinality(fn_parse_ages(p_children)));
+    v_quote  jsonb;
     v_name   text := btrim(COALESCE(p_customer_name, ''));
     v_err    text;
     v_rt     room_types;
@@ -644,9 +814,9 @@ BEGIN
         RETURN jsonb_build_object('ok', false, 'send_sms', false,
                                   'message', 'Geçerli bir cep telefonu numarası gerekli (SMS gönderilecek). Müşteriden numarasını iste.');
     END IF;
-    IF v_guests IS NULL OR v_guests < 1 THEN
+    IF v_adults IS NULL OR v_adults < 1 THEN
         RETURN jsonb_build_object('ok', false, 'send_sms', false,
-                                  'message', 'Kişi sayısı eksik ya da geçersiz. Müşteriden kişi sayısını öğren.');
+                                  'message', 'Yetişkin sayısı eksik ya da geçersiz. Müşteriden yetişkin sayısını ve varsa çocukların yaşlarını öğren.');
     END IF;
     IF COALESCE(btrim(p_email), '') <> '' AND v_email IS NULL THEN
         RETURN jsonb_build_object('ok', false, 'send_sms', false,
@@ -671,9 +841,10 @@ BEGIN
                                FROM room_types rt JOIN hotels h ON h.id = rt.hotel_id WHERE rt.id = ANY (v_ids))));
     END IF;
     SELECT * INTO v_rt FROM room_types WHERE id = v_ids[1];
-    IF v_rt.max_guests < v_guests THEN
+    v_quote := fn_stay_quote(v_rt.id, v_in, v_out, v_adults, v_ages);
+    IF NOT (v_quote->>'fits')::boolean THEN
         RETURN jsonb_build_object('ok', false, 'send_sms', false,
-                                  'message', format('%s en fazla %s kişi alıyor; %s kişi için uygun değil. check_availability ile alternatif bul.', v_rt.name, v_rt.max_guests, v_guests));
+                                  'message', (v_quote->>'reason') || ' check_availability ile uygun oda bul.');
     END IF;
 
     -- Aynı oda tipine eşzamanlı rezervasyonları sıraya sok (overbooking önlemi)
@@ -700,11 +871,11 @@ BEGIN
             'message', format('Üzgünüz, %s - %s bu tarihlerde az önce doldu. check_availability ile alternatifleri kontrol et.', (SELECT name FROM hotels WHERE id = v_rt.hotel_id), v_rt.name));
     END IF;
 
-    INSERT INTO reservations (code, customer_name, phone, room_type_id, guests, check_in, check_out,
-                              total_price, notes, vapi_call_id, email)
-    VALUES (fn_new_reservation_code(), v_name, btrim(p_phone), v_rt.id, v_guests, v_in, v_out,
-            fn_stay_price(v_rt.id, v_in, v_out), NULLIF(btrim(COALESCE(p_notes, '')), ''),
-            NULLIF(p_call_id, ''), v_email)
+    INSERT INTO reservations (code, customer_name, phone, room_type_id, guests, adults, children_ages,
+                              check_in, check_out, total_price, notes, vapi_call_id, email)
+    VALUES (fn_new_reservation_code(), v_name, btrim(p_phone), v_rt.id, v_adults + cardinality(v_ages),
+            v_adults, v_ages, v_in, v_out, (v_quote->>'total')::numeric,
+            NULLIF(btrim(COALESCE(p_notes, '')), ''), NULLIF(p_call_id, ''), v_email)
     RETURNING * INTO v_res;
 
     v_sum := fn_reservation_summary(v_res);
@@ -712,8 +883,9 @@ BEGIN
         'ok', true,
         'reservation_code', v_res.code,
         'reservation_id', v_res.id,
-        'message', format('Rezervasyon oluşturuldu ve onaylandı. Rezervasyon numarası: %s (müşteriye tek tek oku: %s). %s. Rezervasyon detayları %s gönderiliyor.',
-                          v_res.code, fn_spell(v_res.code), v_sum, fn_notify_text(v_res)),
+        'message', format('Rezervasyon oluşturuldu ve onaylandı. Rezervasyon numarası: %s (müşteriye tek tek oku: %s). %s.%s Rezervasyon detayları %s gönderiliyor.',
+                          v_res.code, fn_spell(v_res.code), v_sum,
+                          COALESCE(' Fiyat detayı: ' || (v_quote->>'note') || '.', ''), fn_notify_text(v_res)),
         'send_sms', true,
         'sms_to', fn_phone_e164(v_res.phone),
         'sms_text', format('Sayın %s, rezervasyonunuz onaylandı. Rez. No: %s | %s. %s',
@@ -726,9 +898,13 @@ END $$;
 -- TOOL: modify_reservation (tarih ve/veya kişi sayısı)
 -- =====================================================================
 CREATE OR REPLACE FUNCTION fn_modify_reservation(p_code text, p_phone text, p_check_in text,
-                                                 p_check_out text, p_guests text)
+                                                 p_check_out text, p_guests text,
+                                                 p_adults text DEFAULT NULL, p_children text DEFAULT NULL)
 RETURNS jsonb LANGUAGE plpgsql VOLATILE AS $$
 DECLARE
+    v_ages   int[];
+    v_adults int;
+    v_quote  jsonb;
     v_code   text := regexp_replace(COALESCE(p_code, ''), '\D', '', 'g');
     v_res    reservations;
     v_old    reservations;
@@ -760,19 +936,25 @@ BEGIN
     v_out    := COALESCE(fn_try_date(p_check_out),
                          CASE WHEN fn_try_date(p_check_in) IS NOT NULL
                               THEN v_in + v_res.nights ELSE v_res.check_out END);
-    v_guests := COALESCE(fn_try_int(p_guests), v_res.guests);
+    -- Çocuk bilgisi geldiyse (boş liste dahil, ör. "yok") onu, gelmediyse mevcut çocukları kullan
+    v_ages   := CASE WHEN COALESCE(btrim(p_children), '') <> '' THEN fn_parse_ages(p_children) ELSE v_res.children_ages END;
+    v_adults := COALESCE(fn_try_int(p_adults),
+                         fn_try_int(p_guests) - cardinality(v_ages),
+                         v_res.adults, v_res.guests);
+    v_guests := v_adults + cardinality(v_ages);
 
     IF (NULLIF(btrim(COALESCE(p_check_in, '')), '') IS NOT NULL AND fn_try_date(p_check_in) IS NULL)
        OR (NULLIF(btrim(COALESCE(p_check_out, '')), '') IS NOT NULL AND fn_try_date(p_check_out) IS NULL) THEN
         RETURN jsonb_build_object('ok', false, 'send_sms', false,
             'message', 'Yeni tarihler anlaşılamadı. YYYY-AA-GG formatında tekrar gönder.');
     END IF;
-    IF v_in = v_res.check_in AND v_out = v_res.check_out AND v_guests = v_res.guests THEN
+    IF v_in = v_res.check_in AND v_out = v_res.check_out
+       AND v_adults = COALESCE(v_res.adults, v_res.guests) AND v_ages = v_res.children_ages THEN
         RETURN jsonb_build_object('ok', false, 'send_sms', false,
             'message', 'Değiştirilecek bir bilgi gelmedi. Müşteriden yeni tarihleri ve/veya kişi sayısını öğren. Mevcut rezervasyon: ' || fn_reservation_summary(v_res));
     END IF;
-    IF v_guests < 1 THEN
-        RETURN jsonb_build_object('ok', false, 'send_sms', false, 'message', 'Kişi sayısı en az 1 olmalı.');
+    IF v_adults < 1 THEN
+        RETURN jsonb_build_object('ok', false, 'send_sms', false, 'message', 'En az 1 yetişkin olmalı.');
     END IF;
     IF v_in <> v_res.check_in OR v_out <> v_res.check_out THEN
         v_err := fn_validate_stay(v_in, v_out, v_in::text, v_out::text);
@@ -782,9 +964,10 @@ BEGIN
     END IF;
 
     SELECT * INTO v_rt FROM room_types WHERE id = v_res.room_type_id FOR UPDATE;
-    IF v_rt.max_guests < v_guests THEN
+    v_quote := fn_stay_quote(v_rt.id, v_in, v_out, v_adults, v_ages);
+    IF NOT (v_quote->>'fits')::boolean THEN
         RETURN jsonb_build_object('ok', false, 'send_sms', false,
-            'message', format('%s en fazla %s kişi alıyor. %s kişi için oda tipi değişmeli: mevcut rezervasyonu iptal edip check_availability ile uygun odayı bulup yeni rezervasyon oluşturmayı öner.', v_rt.name, v_rt.max_guests, v_guests));
+            'message', (v_quote->>'reason') || ' Oda tipi değişmeli: mevcut rezervasyonu iptal edip check_availability ile uygun odayı bulup yeni rezervasyon oluşturmayı öner.');
     END IF;
     IF fn_rooms_left(v_rt.id, v_in, v_out, v_res.id) <= 0 THEN
         RETURN jsonb_build_object('ok', false, 'send_sms', false,
@@ -792,8 +975,8 @@ BEGIN
     END IF;
 
     UPDATE reservations
-       SET check_in = v_in, check_out = v_out, guests = v_guests,
-           total_price = fn_stay_price(v_rt.id, v_in, v_out), updated_at = now()
+       SET check_in = v_in, check_out = v_out, guests = v_guests, adults = v_adults, children_ages = v_ages,
+           total_price = (v_quote->>'total')::numeric, updated_at = now()
      WHERE id = v_res.id
     RETURNING * INTO v_res;
 
@@ -802,8 +985,8 @@ BEGIN
     RETURN jsonb_build_object(
         'ok', true,
         'reservation_code', v_res.code,
-        'message', format('Rezervasyon güncellendi. Yeni bilgiler: %s. %s Güncel bilgiler %s gönderiliyor.',
-                          v_sum,
+        'message', format('Rezervasyon güncellendi. Yeni bilgiler: %s.%s %s Güncel bilgiler %s gönderiliyor.',
+                          v_sum, COALESCE(' Fiyat detayı: ' || (v_quote->>'note') || '.', ''),
                           CASE WHEN v_diff > 0 THEN 'Fiyat farkı: ' || fn_money(v_diff, v_rt.currency) || ' artış.'
                                WHEN v_diff < 0 THEN 'Fiyat farkı: ' || fn_money(-v_diff, v_rt.currency) || ' azalış.'
                                ELSE 'Toplam fiyat değişmedi.' END,
@@ -1064,5 +1247,45 @@ FROM room_types rt
 CROSS JOIN generate_series(1, 7) AS n
 WHERE rt.code = 'kemer-aile'
   AND NOT EXISTS (SELECT 1 FROM reservations WHERE code = '900401');
+
+-- ---------------------------------------------------------------------
+-- Çocuk politikaları ve oda kapasiteleri (mevcut veritabanında tekrar çalıştırılabilir)
+--   Yaşlar giriş tarihindeki tam yaştır. 0-1 yaş bebekler her otelde ücretsiz.
+-- ---------------------------------------------------------------------
+UPDATE hotels h SET adult_age = v.adult_age, infant_age = 2, min_guest_age = v.min_age, extra_adult_pct = v.extra
+FROM (VALUES ('lara-deniz', 13, 0, 75), ('belek-green', 12, 0, 70), ('kemer-camkoru', 12, 0, 80),
+             ('side-antik', 13, 0, 75), ('kaleici-taskonak', 12, 12, 100), ('konyaalti-sahil', 12, 0, 80))
+     AS v(code, adult_age, min_age, extra)
+WHERE h.code = v.code;
+
+UPDATE room_types rt SET base_occupancy = v.base, max_guests = v.max_guests, max_adults = v.max_adults
+FROM (VALUES ('lara-standart', 2, 2, NULL), ('lara-deluxe', 2, 3, NULL), ('lara-aile', 2, 4, 3), ('lara-suit', 2, 4, 3),
+             ('belek-superior', 2, 2, NULL), ('belek-deluxe', 2, 3, NULL), ('belek-aile-suit', 2, 5, 4), ('belek-villa', 4, 6, NULL),
+             ('kemer-standart', 2, 2, NULL), ('kemer-bungalov', 2, 3, NULL), ('kemer-aile', 2, 4, 3),
+             ('side-standart', 2, 3, NULL), ('side-deluxe', 2, 3, NULL), ('side-aile', 2, 5, 4),
+             ('kaleici-standart', 2, 2, NULL), ('kaleici-suit', 2, 2, NULL), ('kaleici-aile', 2, 3, NULL),
+             ('konyaalti-ekonomik', 2, 2, NULL), ('konyaalti-deniz', 2, 2, NULL), ('konyaalti-aile', 2, 4, 3))
+     AS v(code, base, max_guests, max_adults)
+WHERE rt.code = v.code;
+
+INSERT INTO hotel_child_policies (hotel_id, child_order, age_min, age_max, price_pct)
+SELECT h.id, v.child_order, v.age_min, v.age_max, v.pct
+FROM (VALUES
+    -- Lara: 1. çocuk 12 yaşına kadar ücretsiz; 2. çocuk 2-6 ücretsiz, 7-12 %50
+    ('lara-deniz', 1, 2, 12, 0), ('lara-deniz', 2, 2, 6, 0), ('lara-deniz', 2, 7, 12, 50),
+    -- Belek: 1. çocuk 11 yaşına kadar ücretsiz; 2. çocuk %50
+    ('belek-green', 1, 2, 11, 0), ('belek-green', 2, 2, 11, 50),
+    -- Kemer: her çocuk 2-5 yaş ücretsiz, 6-11 yaş %50
+    ('kemer-camkoru', NULL, 2, 5, 0), ('kemer-camkoru', NULL, 6, 11, 50),
+    -- Side: 1. çocuk 2-6 ücretsiz, 7-12 %50; 2. çocuk %50
+    ('side-antik', 1, 2, 6, 0), ('side-antik', 1, 7, 12, 50), ('side-antik', 2, 2, 12, 50),
+    -- Konyaaltı: her çocuk 2-5 yaş ücretsiz, 6-11 yaş %30
+    ('konyaalti-sahil', NULL, 2, 5, 0), ('konyaalti-sahil', NULL, 6, 11, 30)
+    -- Kaleiçi Taş Konak: 12 yaş altı kabul edilmiyor (min_guest_age)
+) AS v(hotel_code, child_order, age_min, age_max, pct)
+JOIN hotels h ON h.code = v.hotel_code
+WHERE NOT EXISTS (SELECT 1 FROM hotel_child_policies);
+
+UPDATE reservations SET adults = guests WHERE adults IS NULL;
 
 COMMIT;

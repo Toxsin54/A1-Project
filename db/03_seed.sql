@@ -165,3 +165,43 @@ FROM room_types rt
 CROSS JOIN generate_series(1, 7) AS n
 WHERE rt.code = 'kemer-aile'
   AND NOT EXISTS (SELECT 1 FROM reservations WHERE code = '900401');
+
+-- ---------------------------------------------------------------------
+-- Çocuk politikaları ve oda kapasiteleri (mevcut veritabanında tekrar çalıştırılabilir)
+--   Yaşlar giriş tarihindeki tam yaştır. 0-1 yaş bebekler her otelde ücretsiz.
+-- ---------------------------------------------------------------------
+UPDATE hotels h SET adult_age = v.adult_age, infant_age = 2, min_guest_age = v.min_age, extra_adult_pct = v.extra
+FROM (VALUES ('lara-deniz', 13, 0, 75), ('belek-green', 12, 0, 70), ('kemer-camkoru', 12, 0, 80),
+             ('side-antik', 13, 0, 75), ('kaleici-taskonak', 12, 12, 100), ('konyaalti-sahil', 12, 0, 80))
+     AS v(code, adult_age, min_age, extra)
+WHERE h.code = v.code;
+
+UPDATE room_types rt SET base_occupancy = v.base, max_guests = v.max_guests, max_adults = v.max_adults
+FROM (VALUES ('lara-standart', 2, 2, NULL), ('lara-deluxe', 2, 3, NULL), ('lara-aile', 2, 4, 3), ('lara-suit', 2, 4, 3),
+             ('belek-superior', 2, 2, NULL), ('belek-deluxe', 2, 3, NULL), ('belek-aile-suit', 2, 5, 4), ('belek-villa', 4, 6, NULL),
+             ('kemer-standart', 2, 2, NULL), ('kemer-bungalov', 2, 3, NULL), ('kemer-aile', 2, 4, 3),
+             ('side-standart', 2, 3, NULL), ('side-deluxe', 2, 3, NULL), ('side-aile', 2, 5, 4),
+             ('kaleici-standart', 2, 2, NULL), ('kaleici-suit', 2, 2, NULL), ('kaleici-aile', 2, 3, NULL),
+             ('konyaalti-ekonomik', 2, 2, NULL), ('konyaalti-deniz', 2, 2, NULL), ('konyaalti-aile', 2, 4, 3))
+     AS v(code, base, max_guests, max_adults)
+WHERE rt.code = v.code;
+
+INSERT INTO hotel_child_policies (hotel_id, child_order, age_min, age_max, price_pct)
+SELECT h.id, v.child_order, v.age_min, v.age_max, v.pct
+FROM (VALUES
+    -- Lara: 1. çocuk 12 yaşına kadar ücretsiz; 2. çocuk 2-6 ücretsiz, 7-12 %50
+    ('lara-deniz', 1, 2, 12, 0), ('lara-deniz', 2, 2, 6, 0), ('lara-deniz', 2, 7, 12, 50),
+    -- Belek: 1. çocuk 11 yaşına kadar ücretsiz; 2. çocuk %50
+    ('belek-green', 1, 2, 11, 0), ('belek-green', 2, 2, 11, 50),
+    -- Kemer: her çocuk 2-5 yaş ücretsiz, 6-11 yaş %50
+    ('kemer-camkoru', NULL, 2, 5, 0), ('kemer-camkoru', NULL, 6, 11, 50),
+    -- Side: 1. çocuk 2-6 ücretsiz, 7-12 %50; 2. çocuk %50
+    ('side-antik', 1, 2, 6, 0), ('side-antik', 1, 7, 12, 50), ('side-antik', 2, 2, 12, 50),
+    -- Konyaaltı: her çocuk 2-5 yaş ücretsiz, 6-11 yaş %30
+    ('konyaalti-sahil', NULL, 2, 5, 0), ('konyaalti-sahil', NULL, 6, 11, 30)
+    -- Kaleiçi Taş Konak: 12 yaş altı kabul edilmiyor (min_guest_age)
+) AS v(hotel_code, child_order, age_min, age_max, pct)
+JOIN hotels h ON h.code = v.hotel_code
+WHERE NOT EXISTS (SELECT 1 FROM hotel_child_policies);
+
+UPDATE reservations SET adults = guests WHERE adults IS NULL;

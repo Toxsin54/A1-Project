@@ -22,15 +22,23 @@
           "type": "string",
           "description": "Çıkış tarihi, YYYY-AA-GG"
         },
+        "adults": {
+          "type": "integer",
+          "description": "Yetişkin sayısı"
+        },
+        "children_ages": {
+          "type": "string",
+          "description": "Çocukların giriş tarihindeki yaşları, virgülle: ör. '8, 4'. Bebekler için 0 veya 1 yaz. Çocuk yoksa 'yok' yaz."
+        },
         "guests": {
           "type": "integer",
-          "description": "Toplam kişi sayısı"
+          "description": "Eski alan (toplam kişi). adults ve children_ages kullan; bunları gönderdiysen boş bırak."
         }
       },
       "required": [
         "check_in",
         "check_out",
-        "guests"
+        "adults"
       ]
     }
   },
@@ -53,9 +61,17 @@
           "type": "string",
           "description": "SMS gönderilecek cep telefonu. Müşteri arayan numarayı onayladıysa boş bırakılabilir."
         },
+        "adults": {
+          "type": "integer",
+          "description": "Yetişkin sayısı"
+        },
+        "children_ages": {
+          "type": "string",
+          "description": "Çocukların giriş tarihindeki yaşları, virgülle: ör. '8, 4'. Bebekler için 0 veya 1 yaz. Çocuk yoksa 'yok' yaz."
+        },
         "guests": {
           "type": "integer",
-          "description": "Toplam kişi sayısı"
+          "description": "Eski alan (toplam kişi). adults ve children_ages kullan; bunları gönderdiysen boş bırak."
         },
         "check_in": {
           "type": "string",
@@ -81,7 +97,7 @@
       "required": [
         "room_type",
         "customer_name",
-        "guests",
+        "adults",
         "check_in",
         "check_out"
       ]
@@ -89,7 +105,7 @@
   },
   {
     "name": "modify_reservation",
-    "description": "Mevcut rezervasyonun tarihlerini ve/veya kişi sayısını değiştirir. Sadece değişen alanları gönder.",
+    "description": "Mevcut rezervasyonun tarihlerini, yetişkin sayısını ve/veya çocuk bilgisini değiştirir. Sadece değişen alanları gönder.",
     "requestStart": "Rezervasyonunuzu güncelliyorum.",
     "parameters": {
       "type": "object",
@@ -110,9 +126,17 @@
           "type": "string",
           "description": "Yeni çıkış tarihi, YYYY-AA-GG"
         },
+        "adults": {
+          "type": "integer",
+          "description": "Yeni yetişkin sayısı (değişmiyorsa boş bırak)"
+        },
+        "children_ages": {
+          "type": "string",
+          "description": "Yeni çocuk yaşları, ör. '8, 4'. Tüm çocuklar çıkarılacaksa 'yok' yaz. Değişmiyorsa boş bırak."
+        },
         "guests": {
           "type": "integer",
-          "description": "Yeni kişi sayısı"
+          "description": "Eski alan (toplam kişi). adults ve children_ages kullan; bunları gönderdiysen boş bırak."
         }
       },
       "required": [
