@@ -8,10 +8,27 @@ CREATE TABLE IF NOT EXISTS app_settings (
     value text NOT NULL
 );
 
+-- Oteller
+CREATE TABLE IF NOT EXISTS hotels (
+    id          serial PRIMARY KEY,
+    code        text    NOT NULL UNIQUE,                   -- kısa kod: lara-deniz
+    name        text    NOT NULL,                          -- müşteriye söylenecek ad
+    region      text    NOT NULL,                          -- bölge: Lara, Belek, Kemer...
+    stars       int     CHECK (stars BETWEEN 1 AND 5),     -- butik otellerde boş olabilir
+    board_type  text    NOT NULL,                          -- konsept: Ultra Her Şey Dahil, Oda Kahvaltı...
+    description text,
+    features    text[]  NOT NULL DEFAULT '{}',             -- "özel plaj", "aquapark" ...
+    aliases     text[]  NOT NULL DEFAULT '{}',             -- müşterinin kullanabileceği kısa adlar
+    active      boolean NOT NULL DEFAULT true,
+    sort_order  int     NOT NULL DEFAULT 0
+);
+
 -- Oda tipleri ve stok (her tipten kaç oda satılabilir)
 CREATE TABLE IF NOT EXISTS room_types (
     id              serial PRIMARY KEY,
-    code            text        NOT NULL UNIQUE,           -- asistanın kullandığı kısa kod: standart, deluxe, aile, suit
+    hotel_id        int         NOT NULL REFERENCES hotels(id),
+    code            text        NOT NULL UNIQUE,           -- tüm otellerde tekil kod: lara-deniz-deluxe
+    category        text        NOT NULL,                  -- genel tip: standart, deluxe, aile, suit, villa...
     name            text        NOT NULL,                  -- müşteriye söylenecek ad
     description     text,
     features        text[]      NOT NULL DEFAULT '{}',     -- "deniz manzarası", "balkon" ...

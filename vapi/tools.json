@@ -1,17 +1,37 @@
 [
   {
     "name": "check_availability",
-    "description": "Belirtilen tarihlerde ve kişi sayısında oda müsaitliğini sorgular. İstenen oda tipi müsaitse özellik ve toplam fiyatını, değilse fiyat ve özellikleriyle alternatifleri döndürür. room_type boş bırakılırsa tüm müsait odaları listeler.",
+    "description": "Belirtilen tarihlerde ve kişi sayısında oda müsaitliğini sorgular. İstenen otel/oda müsaitse özellik ve toplam fiyatını, değilse fiyat ve özellikleriyle alternatifleri (gerekirse başka otellerden) döndürür. hotel ve room_type boş bırakılırsa her otelin en uygun odasını listeler.",
     "requestStart": "Hemen sistemden kontrol ediyorum, bir saniye lütfen.",
     "parameters": {
       "type": "object",
       "properties": {
-        "room_type": { "type": "string", "description": "İstenen oda tipi. Önceki sonuçtan gelen kod (standart, deluxe, aile, suit) ya da müşterinin ifadesi (ör. 'deniz manzaralı'). Bilinmiyorsa boş bırak." },
-        "check_in": { "type": "string", "description": "Giriş tarihi, YYYY-AA-GG" },
-        "check_out": { "type": "string", "description": "Çıkış tarihi, YYYY-AA-GG" },
-        "guests": { "type": "integer", "description": "Toplam kişi sayısı" }
+        "hotel": {
+          "type": "string",
+          "description": "Müşterinin istediği otel adı ya da bölge (Lara, Belek, Kemer, Side, Kaleiçi, Konyaaltı). Tercihi yoksa boş bırak."
+        },
+        "room_type": {
+          "type": "string",
+          "description": "İstenen oda tipi. Önceki sonuçtan gelen kod (ör. 'lara-deluxe') ya da müşterinin ifadesi (ör. 'aile odası', 'deniz manzaralı', 'villa'). Bilinmiyorsa boş bırak."
+        },
+        "check_in": {
+          "type": "string",
+          "description": "Giriş tarihi, YYYY-AA-GG"
+        },
+        "check_out": {
+          "type": "string",
+          "description": "Çıkış tarihi, YYYY-AA-GG"
+        },
+        "guests": {
+          "type": "integer",
+          "description": "Toplam kişi sayısı"
+        }
       },
-      "required": ["check_in", "check_out", "guests"]
+      "required": [
+        "check_in",
+        "check_out",
+        "guests"
+      ]
     }
   },
   {
@@ -21,15 +41,46 @@
     "parameters": {
       "type": "object",
       "properties": {
-        "room_type": { "type": "string", "description": "check_availability sonucundaki oda kodu (ör. 'deluxe')" },
-        "customer_name": { "type": "string", "description": "Müşterinin adı soyadı" },
-        "phone": { "type": "string", "description": "SMS gönderilecek cep telefonu. Müşteri arayan numarayı onayladıysa boş bırakılabilir." },
-        "guests": { "type": "integer", "description": "Toplam kişi sayısı" },
-        "check_in": { "type": "string", "description": "Giriş tarihi, YYYY-AA-GG" },
-        "check_out": { "type": "string", "description": "Çıkış tarihi, YYYY-AA-GG" },
-        "notes": { "type": "string", "description": "Özel istekler (erken giriş, bebek yatağı, balayı vb.)" }
+        "room_type": {
+          "type": "string",
+          "description": "check_availability sonucundaki room_type kodu (ör. 'side-deluxe'). Kod birden fazla otelde geçmez."
+        },
+        "customer_name": {
+          "type": "string",
+          "description": "Müşterinin adı soyadı"
+        },
+        "phone": {
+          "type": "string",
+          "description": "SMS gönderilecek cep telefonu. Müşteri arayan numarayı onayladıysa boş bırakılabilir."
+        },
+        "guests": {
+          "type": "integer",
+          "description": "Toplam kişi sayısı"
+        },
+        "check_in": {
+          "type": "string",
+          "description": "Giriş tarihi, YYYY-AA-GG"
+        },
+        "check_out": {
+          "type": "string",
+          "description": "Çıkış tarihi, YYYY-AA-GG"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Özel istekler (erken giriş, bebek yatağı, balayı vb.)"
+        },
+        "hotel": {
+          "type": "string",
+          "description": "Otel adı. room_type kodu kullanılıyorsa gerekmez."
+        }
       },
-      "required": ["room_type", "customer_name", "guests", "check_in", "check_out"]
+      "required": [
+        "room_type",
+        "customer_name",
+        "guests",
+        "check_in",
+        "check_out"
+      ]
     }
   },
   {
@@ -39,13 +90,30 @@
     "parameters": {
       "type": "object",
       "properties": {
-        "reservation_id": { "type": "string", "description": "6 haneli rezervasyon numarası" },
-        "phone": { "type": "string", "description": "Rezervasyonda kullanılan telefon. Arayan numara ile aynıysa boş bırakılabilir." },
-        "check_in": { "type": "string", "description": "Yeni giriş tarihi, YYYY-AA-GG" },
-        "check_out": { "type": "string", "description": "Yeni çıkış tarihi, YYYY-AA-GG" },
-        "guests": { "type": "integer", "description": "Yeni kişi sayısı" }
+        "reservation_id": {
+          "type": "string",
+          "description": "6 haneli rezervasyon numarası"
+        },
+        "phone": {
+          "type": "string",
+          "description": "Rezervasyonda kullanılan telefon. Arayan numara ile aynıysa boş bırakılabilir."
+        },
+        "check_in": {
+          "type": "string",
+          "description": "Yeni giriş tarihi, YYYY-AA-GG"
+        },
+        "check_out": {
+          "type": "string",
+          "description": "Yeni çıkış tarihi, YYYY-AA-GG"
+        },
+        "guests": {
+          "type": "integer",
+          "description": "Yeni kişi sayısı"
+        }
       },
-      "required": ["reservation_id"]
+      "required": [
+        "reservation_id"
+      ]
     }
   },
   {
@@ -55,10 +123,18 @@
     "parameters": {
       "type": "object",
       "properties": {
-        "reservation_id": { "type": "string", "description": "6 haneli rezervasyon numarası" },
-        "phone": { "type": "string", "description": "Rezervasyonda kullanılan telefon. Arayan numara ile aynıysa boş bırakılabilir." }
+        "reservation_id": {
+          "type": "string",
+          "description": "6 haneli rezervasyon numarası"
+        },
+        "phone": {
+          "type": "string",
+          "description": "Rezervasyonda kullanılan telefon. Arayan numara ile aynıysa boş bırakılabilir."
+        }
       },
-      "required": ["reservation_id"]
+      "required": [
+        "reservation_id"
+      ]
     }
   },
   {
@@ -68,7 +144,10 @@
     "parameters": {
       "type": "object",
       "properties": {
-        "phone": { "type": "string", "description": "Rezervasyonda kullanılan telefon. Arayan numara ile aynıysa boş bırakılabilir." }
+        "phone": {
+          "type": "string",
+          "description": "Rezervasyonda kullanılan telefon. Arayan numara ile aynıysa boş bırakılabilir."
+        }
       }
     }
   }
