@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS reservations (
     total_price    numeric(12,2) NOT NULL,
     notes          text,
     status         text        NOT NULL DEFAULT 'confirmed' CHECK (status IN ('confirmed', 'cancelled')),
-    source         text        NOT NULL DEFAULT 'vapi',
+    source         text        NOT NULL DEFAULT 'telefon',  -- telefon, whatsapp, instagram, test
     vapi_call_id   text,
     created_at     timestamptz NOT NULL DEFAULT now(),
     updated_at     timestamptz NOT NULL DEFAULT now(),

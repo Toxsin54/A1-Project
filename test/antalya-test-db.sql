@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS reservations (
     total_price    numeric(12,2) NOT NULL,
     notes          text,
     status         text        NOT NULL DEFAULT 'confirmed' CHECK (status IN ('confirmed', 'cancelled')),
-    source         text        NOT NULL DEFAULT 'vapi',
+    source         text        NOT NULL DEFAULT 'telefon',  -- telefon, whatsapp, instagram, test
     vapi_call_id   text,
     created_at     timestamptz NOT NULL DEFAULT now(),
     updated_at     timestamptz NOT NULL DEFAULT now(),
@@ -872,10 +872,14 @@ BEGIN
     END IF;
 
     INSERT INTO reservations (code, customer_name, phone, room_type_id, guests, adults, children_ages,
-                              check_in, check_out, total_price, notes, vapi_call_id, email)
+                              check_in, check_out, total_price, notes, vapi_call_id, email, source)
     VALUES (fn_new_reservation_code(), v_name, btrim(p_phone), v_rt.id, v_adults + cardinality(v_ages),
             v_adults, v_ages, v_in, v_out, (v_quote->>'total')::numeric,
-            NULLIF(btrim(COALESCE(p_notes, '')), ''), NULLIF(p_call_id, ''), v_email)
+            NULLIF(btrim(COALESCE(p_notes, '')), ''), NULLIF(p_call_id, ''), v_email,
+            -- Kanal: mesaj asistanları çağrı kimliğini kanal adıyla başlatır
+            CASE WHEN p_call_id ILIKE 'whatsapp%' THEN 'whatsapp'
+                 WHEN p_call_id ILIKE 'instagram%' THEN 'instagram'
+                 ELSE 'telefon' END)
     RETURNING * INTO v_res;
 
     v_sum := fn_reservation_summary(v_res);

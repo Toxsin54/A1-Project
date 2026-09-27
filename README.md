@@ -35,7 +35,9 @@ Müşteri ──telefon──▶ Vapi (STT + LLM + TTS)
 | `db/01_schema.sql` | Tablolar: `hotels` (otel, bölge, yıldız, konsept), `room_types` (otele bağlı oda tipi, özellikler, kapasite, stok, fiyat), `room_rates` (sezon fiyatları), `reservations`, `app_settings` |
 | `db/02_functions.sql` | Tüm iş mantığı: müsaitlik, alternatifler, fiyat hesabı, rezervasyon, değişiklik, iptal, SMS metni |
 | `db/03_seed.sql` | Antalya test verisi: 6 otel, 20 oda tipi, sezon fiyatları, hazır test rezervasyonları. Kendi verilerinizle değiştirin |
-| `n8n/vapi-reservations-workflow.json` | n8n'e import edilecek workflow |
+| `n8n/vapi-reservations-workflow.json` | n8n'e import edilecek workflow (telefon + rezervasyon araçları) |
+| `n8n/whatsapp-reservations-workflow.json` | WhatsApp mesaj asistanı workflow'u |
+| `whatsapp/system-prompt.md` | WhatsApp asistanının talimatı |
 | `vapi/system-prompt.md` | Asistanın Türkçe talimatları |
 | `vapi/tools.json` | Vapi araç (tool) tanımları |
 | `vapi/deploy.mjs` | Asistanı Vapi API ile oluşturan/güncelleyen betik |
@@ -129,6 +131,41 @@ Asistanı panelden elle kurmak isterseniz:
 1. `vapi/system-prompt.md` içeriğini System Prompt alanına yapıştırın ve `__COMPANY_NAME__` yerine firma adınızı yazın.
 2. `vapi/tools.json` içindeki 5 aracı **Function Tool** olarak ekleyin.
 3. Her aracın Server URL'si olarak n8n adresini girin ve `X-Vapi-Secret` başlığını ekleyin.
+
+### 4) WhatsApp mesaj asistanı
+
+WhatsApp'tan yazan müşteriyle aynı kurallarla yazışarak rezervasyon yapar. Asistan, yukarıdaki rezervasyon webhook'unu araç olarak çağırır. Bu yüzden fiyat hesabı, çocuk politikası ve SMS/WhatsApp/e-posta bildirimleri telefon kanalıyla birebir aynıdır.
+
+```
+WhatsApp ─▶ Twilio ─▶ /webhook/whatsapp/incoming?key=… ─▶ AI Agent (OpenAI + sohbet hafızası)
+                                                              │ araçlar (5 adet)
+                                                              ▼
+                                            /webhook/vapi/reservations (mevcut workflow) ─▶ Supabase
+AI Agent cevabı ─▶ Twilio ─▶ WhatsApp
+```
+
+- **Workflow dosyası:** `n8n/whatsapp-reservations-workflow.json`.
+- **Asistan talimatı:** `whatsapp/system-prompt.md`. Workflow'a gömülüdür; tarih ve müşteri numarası otomatik eklenir.
+- **Sohbet hafızası:** Supabase'de `whatsapp_chat_histories` tablosunda müşteri numarasına göre tutulur. Tabloyu n8n ilk mesajda kendisi oluşturur.
+- **Kanal kaydı:** Rezervasyonlar `source = 'whatsapp'` olarak kaydedilir; telefondan gelenler `telefon` olarak.
+
+**Kurulum**
+1. n8n'de workflow'u import edin. *WhatsApp Settings* düğümünü doldurun:
+   - `webhook_key`: uzun rastgele bir değer.
+   - `twilio_whatsapp_from`: Twilio WhatsApp göndericisi (Sandbox: `+14155238886`).
+   - `reservation_webhook_url`: rezervasyon workflow'unun Production URL'si.
+   - `company_name`: firma adı.
+2. Credential'ları seçin:
+   - *OpenAI Chat Model*: OpenAI API anahtarı.
+   - *Chat Memory*: Postgres.
+   - 5 araç düğümü: rezervasyon webhook'undaki **Header Auth**.
+   - *Send Reply*: Twilio.
+3. Workflow'u **Publish** edin.
+4. Twilio Console → **Messaging → Try it out → Send a WhatsApp message → Sandbox settings** bölümünde **When a message comes in** alanına şunu yazın ve yöntemi **POST** seçin:
+   `https://<n8n-adresiniz>/webhook/whatsapp/incoming?key=<webhook_key>`
+5. Telefonunuzdan Sandbox numarasına `join <kod>` yazın, sonra normal mesajlaşmaya başlayın.
+
+Anahtar (`key`) eşleşmeyen istekler 403 ile reddedilir. Twilio'ya hemen boş bir cevap dönülür; asistanın yanıtı birkaç saniye içinde Twilio API ile ayrıca gönderilir.
 
 ## Vapi ↔ n8n sözleşmesi
 
