@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS reservations (
     total_price    numeric(12,2) NOT NULL,
     notes          text,
     status         text        NOT NULL DEFAULT 'confirmed' CHECK (status IN ('confirmed', 'cancelled')),
-    source         text        NOT NULL DEFAULT 'telefon',  -- telefon, whatsapp, instagram, test
+    source         text        NOT NULL DEFAULT 'telefon',  -- telefon, whatsapp, instagram, facebook, test
     vapi_call_id   text,
     created_at     timestamptz NOT NULL DEFAULT now(),
     updated_at     timestamptz NOT NULL DEFAULT now(),
@@ -879,6 +879,7 @@ BEGIN
             -- Kanal: mesaj asistanları çağrı kimliğini kanal adıyla başlatır
             CASE WHEN p_call_id ILIKE 'whatsapp%' THEN 'whatsapp'
                  WHEN p_call_id ILIKE 'instagram%' THEN 'instagram'
+                 WHEN p_call_id ILIKE 'messenger%' THEN 'facebook'
                  ELSE 'telefon' END)
     RETURNING * INTO v_res;
 

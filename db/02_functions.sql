@@ -740,6 +740,7 @@ BEGIN
             -- Kanal: mesaj asistanları çağrı kimliğini kanal adıyla başlatır
             CASE WHEN p_call_id ILIKE 'whatsapp%' THEN 'whatsapp'
                  WHEN p_call_id ILIKE 'instagram%' THEN 'instagram'
+                 WHEN p_call_id ILIKE 'messenger%' THEN 'facebook'
                  ELSE 'telefon' END)
     RETURNING * INTO v_res;
 

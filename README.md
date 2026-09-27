@@ -36,8 +36,8 @@ Müşteri ──telefon──▶ Vapi (STT + LLM + TTS)
 | `db/02_functions.sql` | Tüm iş mantığı: müsaitlik, alternatifler, fiyat hesabı, rezervasyon, değişiklik, iptal, SMS metni |
 | `db/03_seed.sql` | Antalya test verisi: 6 otel, 20 oda tipi, sezon fiyatları, hazır test rezervasyonları. Kendi verilerinizle değiştirin |
 | `n8n/vapi-reservations-workflow.json` | n8n'e import edilecek workflow (telefon + rezervasyon araçları) |
-| `n8n/whatsapp-reservations-workflow.json` | WhatsApp mesaj asistanı workflow'u |
-| `whatsapp/system-prompt.md` | WhatsApp asistanının talimatı |
+| `n8n/messaging-workflow.json` | Mesaj asistanı: WhatsApp, Instagram DM, Facebook Messenger |
+| `messaging/system-prompt.md` | Mesaj asistanının talimatı |
 | `vapi/system-prompt.md` | Asistanın Türkçe talimatları |
 | `vapi/tools.json` | Vapi araç (tool) tanımları |
 | `vapi/deploy.mjs` | Asistanı Vapi API ile oluşturan/güncelleyen betik |
@@ -132,40 +132,54 @@ Asistanı panelden elle kurmak isterseniz:
 2. `vapi/tools.json` içindeki 5 aracı **Function Tool** olarak ekleyin.
 3. Her aracın Server URL'si olarak n8n adresini girin ve `X-Vapi-Secret` başlığını ekleyin.
 
-### 4) WhatsApp mesaj asistanı
+### 4) Mesaj asistanı: WhatsApp, Instagram DM, Facebook Messenger
 
-WhatsApp'tan yazan müşteriyle aynı kurallarla yazışarak rezervasyon yapar. Asistan, yukarıdaki rezervasyon webhook'unu araç olarak çağırır. Bu yüzden fiyat hesabı, çocuk politikası ve SMS/WhatsApp/e-posta bildirimleri telefon kanalıyla birebir aynıdır.
+Üç kanaldan yazan müşteriyle aynı kurallarla yazışarak rezervasyon yapar. Asistan, yukarıdaki rezervasyon webhook'unu araç olarak çağırır. Bu yüzden fiyat hesabı, çocuk politikası ve SMS/WhatsApp/e-posta bildirimleri telefon kanalıyla birebir aynıdır.
 
 ```
-WhatsApp ─▶ Twilio ─▶ /webhook/whatsapp/incoming?key=… ─▶ AI Agent (OpenAI + sohbet hafızası)
-                                                              │ araçlar (5 adet)
-                                                              ▼
-                                            /webhook/vapi/reservations (mevcut workflow) ─▶ Supabase
-AI Agent cevabı ─▶ Twilio ─▶ WhatsApp
+WhatsApp  ─▶ Twilio ─▶ /webhook/whatsapp/incoming?key=…  ─┐
+Instagram ─▶ Meta   ─▶ /webhook/meta/messages (imzalı) ────┼─▶ kanal açık mı? ─▶ AI Agent (OpenAI + sohbet hafızası)
+Messenger ─▶ Meta   ─▶ /webhook/meta/messages (imzalı) ────┘         │ 5 araç
+                                                                    ▼
+                                          /webhook/vapi/reservations (mevcut workflow) ─▶ Supabase
+AI Agent cevabı ─▶ gelen kanala (Twilio / Instagram API / Messenger API)
 ```
 
-- **Workflow dosyası:** `n8n/whatsapp-reservations-workflow.json`.
-- **Asistan talimatı:** `whatsapp/system-prompt.md`. Workflow'a gömülüdür; tarih ve müşteri numarası otomatik eklenir.
-- **Sohbet hafızası:** Supabase'de `whatsapp_chat_histories` tablosunda müşteri numarasına göre tutulur. Tabloyu n8n ilk mesajda kendisi oluşturur.
-- **Kanal kaydı:** Rezervasyonlar `source = 'whatsapp'` olarak kaydedilir; telefondan gelenler `telefon` olarak.
+- **Dosyalar:** Workflow `n8n/messaging-workflow.json`, asistan talimatı `messaging/system-prompt.md`. Talimat workflow'a gömülüdür; kanal, tarih ve telefon bilgisi otomatik eklenir.
+- **Kanal anahtarları:** *Messaging Settings* düğümündeki `whatsapp_enabled`, `instagram_enabled`, `messenger_enabled` ile her kanal ayrı açılıp kapatılır. Varsayılan: **hepsi kapalı**. Kapalı kanaldan gelen mesaja cevap verilmez; Twilio ve Meta'ya yine 200 dönülür.
+- **Telefon:** WhatsApp'ta müşterinin numarası otomatik gelir. Instagram ve Messenger'da asistan cep telefonunu sorar.
+- **Kanal kaydı:** Rezervasyonun `source` alanı `whatsapp`, `instagram` veya `facebook` olur.
+- **Güvenlik:**
+  - WhatsApp isteklerinde URL'deki `key` kontrol edilir.
+  - Meta isteklerinde `X-Hub-Signature-256` imzası App Secret ile doğrulanır.
+  - Uymayan istekler 403 ile reddedilir.
+- **Sohbet hafızası:** Supabase'de `chat_histories` tablosunda kanal ve kullanıcıya göre tutulur. Tabloyu n8n kendisi oluşturur.
 
-**Kurulum**
-1. n8n'de workflow'u import edin. *WhatsApp Settings* düğümünü doldurun:
-   - `webhook_key`: uzun rastgele bir değer.
-   - `twilio_whatsapp_from`: Twilio WhatsApp göndericisi (Sandbox: `+14155238886`).
-   - `reservation_webhook_url`: rezervasyon workflow'unun Production URL'si.
-   - `company_name`: firma adı.
-2. Credential'ları seçin:
+**Ortak kurulum**
+1. Workflow'u import edin (workflow ve üç kanal kapalı gelir).
+2. *Messaging Settings* düğümünde `reservation_webhook_url` alanına rezervasyon workflow'unun Production URL'sini, `company_name` alanına firma adını yazın.
+3. Credential'ları seçin:
    - *OpenAI Chat Model*: OpenAI API anahtarı.
    - *Chat Memory*: Postgres.
    - 5 araç düğümü: rezervasyon webhook'undaki **Header Auth**.
-   - *Send Reply*: Twilio.
-3. Workflow'u **Publish** edin.
-4. Twilio Console → **Messaging → Try it out → Send a WhatsApp message → Sandbox settings** bölümünde **When a message comes in** alanına şunu yazın ve yöntemi **POST** seçin:
-   `https://<n8n-adresiniz>/webhook/whatsapp/incoming?key=<webhook_key>`
-5. Telefonunuzdan Sandbox numarasına `join <kod>` yazın, sonra normal mesajlaşmaya başlayın.
 
-Anahtar (`key`) eşleşmeyen istekler 403 ile reddedilir. Twilio'ya hemen boş bir cevap dönülür; asistanın yanıtı birkaç saniye içinde Twilio API ile ayrıca gönderilir.
+**WhatsApp'ı açmak**
+1. `webhook_key` alanına uzun rastgele bir değer yazın. `twilio_whatsapp_from` alanına Twilio WhatsApp göndericisini yazın (Sandbox: `+14155238886`). *Reply WhatsApp* düğümünde Twilio credential'ını seçin.
+2. Twilio → Messaging → Try it out → WhatsApp → Sandbox settings bölümünde **When a message comes in** alanına şunu yazıp POST seçin: `https://<n8n>/webhook/whatsapp/incoming?key=<webhook_key>`.
+3. `whatsapp_enabled = true` yapın ve workflow'u **Publish** edin.
+
+**Instagram DM ve Facebook Messenger'ı açmak**
+1. **Hazırlık:** Instagram hesabı **İşletme/İçerik Üreticisi** olmalı; Messenger için bir **Facebook Sayfası** gerekir. developers.facebook.com'da bir uygulama oluşturup **Instagram** ve/veya **Messenger** ürünlerini ekleyin.
+2. **App Secret:** Uygulama Ayarları → Temel bölümündeki **App Secret** değerini n8n'de bir **Crypto** credential'ına *HMAC Secret* olarak girin ve *Sign Meta Payload* düğümünde seçin.
+3. **Erişim anahtarları:** Instagram ve sayfa erişim anahtarlarını birer **Header Auth** credential'ı olarak girin (Name: `Authorization`, Value: `Bearer <anahtar>`). *Reply Instagram* ve *Reply Messenger* düğümlerinde seçin.
+4. **Webhook adresi:** `meta_verify_token` alanına kendi belirlediğiniz bir kelime yazın. Workflow'u Publish edin. Meta uygulamasında webhook olarak şunları girin:
+   - Callback URL: `https://<n8n>/webhook/meta/messages`
+   - Verify Token: `meta_verify_token` alanına yazdığınız kelime.
+   - Abone olunacak alan: `messages`.
+5. **Kanalı açın:** `instagram_enabled` ve/veya `messenger_enabled = true` yapıp tekrar Publish edin.
+6. **Test ve yayın:** Test aşamasında sadece uygulamada rolü olan hesaplar yazabilir. Herkese açmak için Meta uygulama incelemesi gerekir: `instagram_business_manage_messages` / `pages_messaging`.
+
+Graph API sürümü (`v23.0`) *Messaging Settings* içindeki `instagram_api_url` ve `messenger_api_url` alanlarından güncellenebilir.
 
 ## Vapi ↔ n8n sözleşmesi
 

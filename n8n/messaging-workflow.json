@@ -1,0 +1,1380 @@
+{
+  "name": "A1 - Mesaj Asistanı (WhatsApp, Instagram, Messenger)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp/incoming",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "c2228f7f-78ac-5f1b-af17-73d842a821e4",
+      "name": "WhatsApp In",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        100
+      ],
+      "webhookId": "569d6da0-ac09-5cc2-bb82-35f829ab6082"
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "meta/messages",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "6eaf0f14-c69d-5a3d-a764-dbe225f784da",
+      "name": "Meta Verify",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "4114c030-af5a-57c6-a281-2107f5b1a8ec"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "meta/messages",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "66c2553a-91c0-5cc9-a01b-bb980cff50ae",
+      "name": "Meta In",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        500
+      ],
+      "webhookId": "afb52b27-39df-5941-9afd-7aaeaaa899bb"
+    },
+    {
+      "parameters": {
+        "action": "hmac",
+        "binaryData": true,
+        "binaryPropertyName": "data",
+        "type": "SHA256",
+        "dataPropertyName": "meta_signature",
+        "encoding": "hex"
+      },
+      "id": "9b49786f-0508-5f69-978c-fceb9429f47a",
+      "name": "Sign Meta Payload",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [
+        200,
+        500
+      ],
+      "credentials": {
+        "crypto": {
+          "id": "REPLACE_ME",
+          "name": "Meta App Secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "4ef63f15-1324-5d20-9e53-e80d29321634",
+              "name": "whatsapp_enabled",
+              "type": "boolean",
+              "value": false
+            },
+            {
+              "id": "79eb3bea-17fe-5ae4-a2c9-469aa5da8f42",
+              "name": "instagram_enabled",
+              "type": "boolean",
+              "value": false
+            },
+            {
+              "id": "b9b1c3fc-c214-5693-b27c-6001a32cfce7",
+              "name": "messenger_enabled",
+              "type": "boolean",
+              "value": false
+            },
+            {
+              "id": "f828d2e0-77b9-5009-b4b1-25141bfd04e5",
+              "name": "webhook_key",
+              "type": "string",
+              "value": "BURAYA_UZUN_RASTGELE_BIR_ANAHTAR"
+            },
+            {
+              "id": "b09c867c-0663-58f6-abdf-4c9bc99a0bb2",
+              "name": "twilio_whatsapp_from",
+              "type": "string",
+              "value": "+14155238886"
+            },
+            {
+              "id": "e59ca4ee-3c34-535e-95cb-79a8aa5f0cf8",
+              "name": "meta_verify_token",
+              "type": "string",
+              "value": "BURAYA_META_DOGRULAMA_KELIMESI"
+            },
+            {
+              "id": "45e5e6e7-0edd-55e0-9775-46309fa4efda",
+              "name": "instagram_api_url",
+              "type": "string",
+              "value": "https://graph.instagram.com/v23.0/me/messages"
+            },
+            {
+              "id": "c350553b-f26d-586c-b9af-46289539a093",
+              "name": "messenger_api_url",
+              "type": "string",
+              "value": "https://graph.facebook.com/v23.0/me/messages"
+            },
+            {
+              "id": "071aadd9-919b-5a65-8573-702210f29c3f",
+              "name": "reservation_webhook_url",
+              "type": "string",
+              "value": "https://N8N_ADRESINIZ/webhook/vapi/reservations"
+            },
+            {
+              "id": "7980782c-dc00-5a8d-8e05-bc48ab33037f",
+              "name": "company_name",
+              "type": "string",
+              "value": "A1 Tur"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "ec0f8e6c-6ef4-5eb2-af4b-31806c8c3e3a",
+      "name": "Messaging Settings",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        420,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "33e0993a-7c5a-5721-bac7-c51e89dbfef2",
+                    "leftValue": "={{ !!$json.query?.['hub.mode'] }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "meta_verify"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "ada1a86f-dc02-5a9b-bca1-15fab93f4576",
+                    "leftValue": "={{ !!$json.body?.object }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "meta_message"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "711035b4-ed69-52c6-bf22-8b6d8a9d824d",
+                    "leftValue": "={{ !!$json.body?.From }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "whatsapp"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "Unknown"
+        }
+      },
+      "id": "40daa7a5-1afc-5864-8184-f5c6d2182462",
+      "name": "Route Source",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        640,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2dbe793e-9c1b-5cd4-b1df-a8b5a35fd918",
+              "leftValue": "={{ $json.query?.['hub.verify_token'] }}",
+              "rightValue": "={{ $json.meta_verify_token }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "96be16c1-b96b-5d61-bdea-f84c7606d53f",
+      "name": "Verify Token OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.query['hub.challenge'] }}",
+        "options": {}
+      },
+      "id": "c466787e-8a01-572b-b23f-02a7a82afb8f",
+      "name": "Return Challenge",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        20
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "forbidden",
+        "options": {
+          "responseCode": 403
+        }
+      },
+      "id": "03e56a54-5fcb-5f63-8e05-8b7e456ee99f",
+      "name": "Reject Verify",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e88068ff-6caa-5d8e-8149-3f6bcfdf2b56",
+              "leftValue": "={{ 'sha256=' + $json.meta_signature }}",
+              "rightValue": "={{ $json.headers?.['x-hub-signature-256'] }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "776e44d8-c7fb-5a89-a70b-f2cba5c12cc5",
+      "name": "Meta Signature OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "EVENT_RECEIVED",
+        "options": {}
+      },
+      "id": "2be0891f-1df1-5180-b95f-c0aceed1c623",
+      "name": "Ack Meta",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "forbidden",
+        "options": {
+          "responseCode": 403
+        }
+      },
+      "id": "c63a2b2e-42ee-584d-850d-cd7b3412670a",
+      "name": "Reject Meta",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "310d6fea-9bf6-5c36-9dea-af30cb7d9a2d",
+              "name": "events",
+              "type": "array",
+              "value": "={{ ($json.body.entry || []).flatMap(e => (e.messaging || []).map(m => ({ object: $json.body.object, sender: m.sender, message: m.message }))) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "931f6724-06b5-5cc5-933f-9ac9c3e4f1f6",
+      "name": "Meta Events",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1320,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "events",
+        "options": {}
+      },
+      "id": "121ddc85-0c06-52fc-bc22-b76f5179059f",
+      "name": "Split Events",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        1540,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e14e2cb5-2d26-5fe0-bfc1-e9dc255c8b00",
+              "leftValue": "={{ !$json.message?.is_echo && !!($json.message?.text || $json.message?.attachments) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "68216bcc-c179-54a2-ba75-f73ad2ba6664",
+      "name": "Is Customer Message?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1760,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "3eb7dd6a-7c10-52d2-8976-d39a82f8fcd7",
+              "name": "channel",
+              "type": "string",
+              "value": "={{ $json.object === 'instagram' ? 'instagram' : 'messenger' }}"
+            },
+            {
+              "id": "90a79008-b6d9-5c0b-9a92-40c0d1edea76",
+              "name": "user_id",
+              "type": "string",
+              "value": "={{ ($json.object === 'instagram' ? 'instagram' : 'messenger') + '-' + $json.sender.id }}"
+            },
+            {
+              "id": "e63809e8-7b05-5189-9dcf-a813a88595b9",
+              "name": "reply_to",
+              "type": "string",
+              "value": "={{ $json.sender.id }}"
+            },
+            {
+              "id": "61f00d6b-5d8f-58ff-9353-d29a9cc929e9",
+              "name": "phone",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "id": "113b0b09-82d5-528b-9302-680a6cc43d76",
+              "name": "text",
+              "type": "string",
+              "value": "={{ String($json.message?.text || '').trim() || '[Müşteri metin olmadan medya gönderdi]' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "081671e7-27b9-5a65-8826-0bae019c11c6",
+      "name": "Normalize Meta",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1980,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f881a913-f28e-5397-993f-fbd7a7864bfd",
+              "leftValue": "={{ $json.query?.key }}",
+              "rightValue": "={{ $json.webhook_key }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "11faf9e1-5fbf-55f0-a12e-3d77c34c5ffa",
+      "name": "WhatsApp Key OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "<Response></Response>",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/xml"
+              }
+            ]
+          }
+        }
+      },
+      "id": "80651a48-d958-59b8-9420-3da5ae1cd28c",
+      "name": "Ack Twilio",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "forbidden",
+        "options": {
+          "responseCode": 403
+        }
+      },
+      "id": "ef895210-9342-5aee-b039-9174de823a0c",
+      "name": "Reject WhatsApp",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "2f9e4b86-3cfc-55d5-9195-df11387a31ad",
+              "name": "channel",
+              "type": "string",
+              "value": "whatsapp"
+            },
+            {
+              "id": "a2c25605-6a99-5629-a66f-e40ad65c1eef",
+              "name": "user_id",
+              "type": "string",
+              "value": "={{ $json.body.From }}"
+            },
+            {
+              "id": "3bac0577-c287-5b9e-9a29-4a3f5c2a4357",
+              "name": "reply_to",
+              "type": "string",
+              "value": "={{ '+' + String($json.body.WaId || $json.body.From || '').replace(/[^0-9]/g, '') }}"
+            },
+            {
+              "id": "eb484ab2-740b-5221-9eac-fdbf301c50b2",
+              "name": "phone",
+              "type": "string",
+              "value": "={{ '+' + String($json.body.WaId || $json.body.From || '').replace(/[^0-9]/g, '') }}"
+            },
+            {
+              "id": "5c058285-6e2a-5924-bdeb-cd9756a7f5f5",
+              "name": "text",
+              "type": "string",
+              "value": "={{ String($json.body.Body || '').trim() || (Number($json.body.NumMedia) > 0 ? '[Müşteri metin olmadan medya gönderdi]' : '[boş mesaj]') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "7a5fd7c2-1a35-5df5-8a13-b6daf7b8fcd6",
+      "name": "Normalize WhatsApp",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1320,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5e002104-bbfe-58af-84bf-449481819a85",
+              "leftValue": "={{ $('Messaging Settings').first().json[$json.channel + '_enabled'] === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "6d1985dc-41c2-5b88-8193-24bd08ede898",
+      "name": "Channel Enabled?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2200,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.text }}",
+        "options": {
+          "systemMessage": "=Sen {{ $('Messaging Settings').first().json.company_name }} acentesinin {{ ({ whatsapp: 'WhatsApp', instagram: 'Instagram', messenger: 'Facebook Messenger' })[$('Channel Enabled?').item.json.channel] }} rezervasyon asistanı \"Ada\"sın. Müşterilerle Türkçe, sıcak ve kısa mesajlarla yazışırsın.\n\nBugünün tarihi: {{ $now.setZone('Europe/Istanbul').toFormat('yyyy-MM-dd cccc', { locale: 'tr' }) }}. \"Yarın\", \"hafta sonu\", \"15'inde\" gibi ifadeleri bu tarihe göre YYYY-AA-GG formatına çevir. Yıl söylenmezse en yakın gelecek tarihi kullan.\n{{ $('Channel Enabled?').item.json.phone ? 'Müşterinin telefon numarası: ' + $('Channel Enabled?').item.json.phone + ' (WhatsApp). Telefonu ayrıca sorma; araçlarda phone alanını boş bırak, bu numara kullanılır.' : 'Müşterinin telefon numarasını bilmiyoruz. Rezervasyon oluştururken, değiştirirken, iptal ederken veya ararken cep telefonunu sor ve araçların phone alanına yaz (bilgilendirme SMS\\'i bu numaraya gider).' }}\n\n## Çalıştığımız oteller (Antalya)\n- Lara Deniz Palace: Lara, 5 yıldız, Ultra Her Şey Dahil\n- Belek Green Golf & Spa Resort: Belek, 5 yıldız, Ultra Her Şey Dahil\n- Kemer Çamkoru Hotel: Kemer, 4 yıldız, Her Şey Dahil\n- Side Antik Liman Resort: Side, 5 yıldız, Her Şey Dahil\n- Kaleiçi Taş Konak Butik Otel: Kaleiçi, butik otel, Oda Kahvaltı, 12 yaş üstü\n- Konyaaltı Sahil Otel: Konyaaltı, 4 yıldız, Yarım Pansiyon\nFiyat ve müsaitliği bu listeden değil, her zaman araçtan öğren.\n\n## Yazışma üslubu\n- Mesajların kısa olsun (en fazla 6-8 satır). Seçenekleri numaralı kısa liste halinde verebilirsin.\n- {{ $('Channel Enabled?').item.json.channel === 'whatsapp' ? 'WhatsApp biçimlendirmesi kullan: kalın için *yıldız*, liste için \"1.\" veya \"•\".' : 'Bu kanalda biçimlendirme işaretleri (yıldız vb.) görünmez; düz metin yaz, liste için \"1.\" veya \"•\" kullan.' }} Emoji en fazla bir-iki tane.\n- Bir mesajda en fazla iki soru sor.\n- Tutarları rakamla yaz (ör. 12.500 TL).\n\n## Görevin\n1. Müşterinin ne istediğini anla: yeni rezervasyon, değişiklik, iptal ya da bilgi.\n2. Yeni rezervasyon için şu bilgileri topla: giriş ve çıkış tarihi (ya da kaç gece), yetişkin sayısı, çocuk varsa her çocuğun giriş tarihindeki yaşı. Otel/bölge ve oda tipi tercihi varsa al; yoksa zorlama.\n3. Bilgiler tamamlanınca `check_availability` aracını çağır (adults, children_ages örn. \"8, 4\" ya da \"yok\", hotel, room_type).\n   - Müsaitse: oteli, oda özelliklerini, toplam fiyatı ve gecelik ortalamayı yaz.\n   - Doluysa ya da uygun değilse: nazikçe söyle, en fazla 3 alternatifi fiyat ve öne çıkan özellikleriyle listele; başka oteldeyse belirt.\n   - Sonuçta köşeli parantez içindeki çocuk fiyat bilgisini (ör. \"1. çocuk (8 yaş) ücretsiz\") mutlaka aktar. Otel çocuk kabul etmiyorsa bunu belirt.\n   - Hiç uygun oda yoksa farklı tarih öner.\n4. Müşteri bir odayı seçerse ad-soyadını sor (telefon numarası bilinmiyorsa cep telefonunu da sor). \"Onay bilgilerini e-posta ile de göndermemi ister misiniz?\" diye sor; isterse adresi al.\n5. Rezervasyonu oluşturmadan önce özeti yaz (otel, oda, tarihler, gece, yetişkin, çocuklar ve yaşları, toplam fiyat, ad, varsa e-posta) ve AÇIK ONAY iste. Onay gelmeden `create_reservation` ÇAĞIRMA.\n6. `create_reservation` sonucu gelince rezervasyon numarasını açıkça yaz ve bilgilerin SMS, WhatsApp ve (verdiyse) e-posta ile gönderildiğini söyle.\n\n## Değişiklik ve iptal\n- Rezervasyon numarasını ve rezervasyonda kullanılan telefonu iste (telefon biliniyorsa sorma); müşteri numarayı bilmiyorsa `find_reservation` ile telefona kayıtlı rezervasyonları bul.\n- Değişiklik: yeni tarih, yetişkin sayısı ve/veya çocuk bilgisini al, özetleyip onay iste, sonra `modify_reservation` çağır. Fiyat farkını yaz.\n- İptal: özeti yaz, \"İptal etmek istediğinizden emin misiniz?\" diye sor, onay gelirse `cancel_reservation` çağır.\n\n## Kurallar\n- Fiyat, müsaitlik veya rezervasyon numarası UYDURMA; yalnızca araçlardan gelen bilgiyi kullan.\n- `create_reservation` çağırırken room_type alanına araç sonucundaki kodu aynen yaz (ör. \"side-deluxe\").\n- Araçların kullanmadığın alanlarına boş metin (\"\") gönder.\n- Araç bir hata veya eksik bilgi mesajı dönerse eksik bilgiyi müşteriden iste ve tekrar dene.\n- Müşteri fotoğraf, ses kaydı gibi bir medya gönderirse şu an sadece yazılı mesajları okuyabildiğini söyle ve yazmasını rica et.\n- Ödeme, transfer ve özel talepleri not al (create_reservation notes alanı) ve ekibin dönüş yapacağını söyle. Müşteri bir yetkiliyle görüşmek isterse ekibin en kısa sürede yazacağını söyle.\n",
+          "maxIterations": 10
+        }
+      },
+      "id": "49f7cbb0-1dc9-57b4-a138-ce470597e5e2",
+      "name": "Reservation Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        2440,
+        360
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o",
+          "mode": "list",
+          "cachedResultName": "gpt-4o"
+        },
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "f51bfd3c-2fc3-5478-9e55-8926e3c968d5",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        2280,
+        620
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "REPLACE_ME",
+          "name": "OpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Channel Enabled?').item.json.user_id }}",
+        "tableName": "chat_histories",
+        "contextWindowLength": 20
+      },
+      "id": "63b35dd2-23ea-58a2-8039-68f1ed180c7e",
+      "name": "Chat Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+      "typeVersion": 1.3,
+      "position": [
+        2420,
+        620
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "toolDescription": "Tarih ve kişi bilgisine göre müsait odaları, toplam fiyatı ve çocuk indirimlerini getirir; doluysa alternatif önerir.",
+        "method": "POST",
+        "url": "={{ $('Messaging Settings').first().json.reservation_webhook_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ message: { type: 'tool-calls', call: { id: $('Channel Enabled?').item.json.user_id, customer: { number: $('Channel Enabled?').item.json.phone } }, toolCallList: [{ id: 'msg-' + $now.toMillis(), type: 'function', function: { name: 'check_availability', arguments: { check_in: $fromAI('check_in', \"Giriş tarihi, YYYY-AA-GG\", 'string'), check_out: $fromAI('check_out', \"Çıkış tarihi, YYYY-AA-GG\", 'string'), adults: $fromAI('adults', \"Yetişkin sayısı\", 'number'), children_ages: $fromAI('children_ages', \"Çocukların giriş tarihindeki yaşları, ör. '8, 4'. Çocuk yoksa 'yok'.\", 'string'), hotel: $fromAI('hotel', \"Otel adı veya bölge (Lara, Belek, Kemer, Side, Kaleiçi, Konyaaltı). Kullanmıyorsan boş metin gönder.\", 'string'), room_type: $fromAI('room_type', \"Oda tipi (ör. 'aile odası', 'deniz manzaralı' ya da önceki sonuçtaki kod). Kullanmıyorsan boş metin gönder.\", 'string') } } }] } }) }}",
+        "options": {}
+      },
+      "id": "f92812ba-9ad1-53ad-9f6b-e81738179862",
+      "name": "check_availability",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        2560,
+        620
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "toolDescription": "Müşteri özeti okuyup AÇIKÇA onay verdikten sonra rezervasyonu oluşturur ve bilgilendirme mesajlarını gönderir.",
+        "method": "POST",
+        "url": "={{ $('Messaging Settings').first().json.reservation_webhook_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ message: { type: 'tool-calls', call: { id: $('Channel Enabled?').item.json.user_id, customer: { number: $('Channel Enabled?').item.json.phone } }, toolCallList: [{ id: 'msg-' + $now.toMillis(), type: 'function', function: { name: 'create_reservation', arguments: { room_type: $fromAI('room_type', \"check_availability sonucundaki room_type kodu (ör. 'side-deluxe')\", 'string'), customer_name: $fromAI('customer_name', \"Müşterinin adı soyadı\", 'string'), phone: $fromAI('phone', \"Müşterinin cep telefonu (ör. 05321234567). Telefon zaten biliniyorsa (WhatsApp) boş metin gönder.\", 'string'), adults: $fromAI('adults', \"Yetişkin sayısı\", 'number'), children_ages: $fromAI('children_ages', \"Çocuk yaşları, ör. '8, 4'. Çocuk yoksa 'yok'.\", 'string'), check_in: $fromAI('check_in', \"Giriş tarihi, YYYY-AA-GG\", 'string'), check_out: $fromAI('check_out', \"Çıkış tarihi, YYYY-AA-GG\", 'string'), email: $fromAI('email', \"Müşterinin e-posta adresi. Kullanmıyorsan boş metin gönder.\", 'string'), notes: $fromAI('notes', \"Özel istekler (bebek yatağı, geç giriş vb.). Kullanmıyorsan boş metin gönder.\", 'string') } } }] } }) }}",
+        "options": {}
+      },
+      "id": "31ed2e5e-0b06-569a-93d5-2db1fa504a66",
+      "name": "create_reservation",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        2700,
+        620
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "toolDescription": "Rezervasyonun tarihlerini, yetişkin sayısını ve/veya çocuk bilgisini değiştirir. Sadece değişen alanları doldur.",
+        "method": "POST",
+        "url": "={{ $('Messaging Settings').first().json.reservation_webhook_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ message: { type: 'tool-calls', call: { id: $('Channel Enabled?').item.json.user_id, customer: { number: $('Channel Enabled?').item.json.phone } }, toolCallList: [{ id: 'msg-' + $now.toMillis(), type: 'function', function: { name: 'modify_reservation', arguments: { reservation_id: $fromAI('reservation_id', \"6 haneli rezervasyon numarası\", 'string'), phone: $fromAI('phone', \"Müşterinin cep telefonu (ör. 05321234567). Telefon zaten biliniyorsa (WhatsApp) boş metin gönder.\", 'string'), check_in: $fromAI('check_in', \"Yeni giriş tarihi, YYYY-AA-GG. Kullanmıyorsan boş metin gönder.\", 'string'), check_out: $fromAI('check_out', \"Yeni çıkış tarihi, YYYY-AA-GG. Kullanmıyorsan boş metin gönder.\", 'string'), adults: $fromAI('adults', \"Yeni yetişkin sayısı. Kullanmıyorsan boş metin gönder.\", 'string'), children_ages: $fromAI('children_ages', \"Yeni çocuk yaşları; tüm çocuklar çıkarılacaksa 'yok'. Kullanmıyorsan boş metin gönder.\", 'string') } } }] } }) }}",
+        "options": {}
+      },
+      "id": "dba1a39c-2cf1-56cc-9983-16b4c91a7134",
+      "name": "modify_reservation",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        2840,
+        620
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "toolDescription": "Müşteri iptali onayladıktan sonra rezervasyonu iptal eder.",
+        "method": "POST",
+        "url": "={{ $('Messaging Settings').first().json.reservation_webhook_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ message: { type: 'tool-calls', call: { id: $('Channel Enabled?').item.json.user_id, customer: { number: $('Channel Enabled?').item.json.phone } }, toolCallList: [{ id: 'msg-' + $now.toMillis(), type: 'function', function: { name: 'cancel_reservation', arguments: { reservation_id: $fromAI('reservation_id', \"6 haneli rezervasyon numarası\", 'string'), phone: $fromAI('phone', \"Müşterinin cep telefonu (ör. 05321234567). Telefon zaten biliniyorsa (WhatsApp) boş metin gönder.\", 'string') } } }] } }) }}",
+        "options": {}
+      },
+      "id": "a5cbbbec-a8bd-563f-97e4-d6d14d18e863",
+      "name": "cancel_reservation",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        2980,
+        620
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "toolDescription": "Telefon numarasına kayıtlı aktif rezervasyonları bulur (müşteri rezervasyon numarasını bilmiyorsa).",
+        "method": "POST",
+        "url": "={{ $('Messaging Settings').first().json.reservation_webhook_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ message: { type: 'tool-calls', call: { id: $('Channel Enabled?').item.json.user_id, customer: { number: $('Channel Enabled?').item.json.phone } }, toolCallList: [{ id: 'msg-' + $now.toMillis(), type: 'function', function: { name: 'find_reservation', arguments: { phone: $fromAI('phone', \"Müşterinin cep telefonu (ör. 05321234567). Telefon zaten biliniyorsa (WhatsApp) boş metin gönder.\", 'string') } } }] } }) }}",
+        "options": {}
+      },
+      "id": "10020e70-0843-5f89-b8ce-e4d9864f5f89",
+      "name": "find_reservation",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        3120,
+        620
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "809660f3-0752-59df-ad08-8c8cdf77d4e0",
+                    "leftValue": "={{ $('Channel Enabled?').item.json.channel }}",
+                    "rightValue": "whatsapp",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "whatsapp"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "9152245d-16a3-53b6-a8d0-288b481379b4",
+                    "leftValue": "={{ $('Channel Enabled?').item.json.channel }}",
+                    "rightValue": "instagram",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "instagram"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "9dc97597-a5b2-5110-b681-12929ca84e7e",
+                    "leftValue": "={{ $('Channel Enabled?').item.json.channel }}",
+                    "rightValue": "messenger",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "messenger"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ce421996-a0e1-5692-831d-9e59b64da4c4",
+      "name": "Route Reply",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        2800,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "from": "={{ $('Messaging Settings').first().json.twilio_whatsapp_from }}",
+        "to": "={{ $('Channel Enabled?').item.json.reply_to }}",
+        "toWhatsapp": true,
+        "message": "={{ String($json.output || 'Şu an teknik bir sorun yaşıyoruz, kusura bakmayın. Ekibimiz en kısa sürede size yazacak.').slice(0, 1500) }}",
+        "options": {}
+      },
+      "id": "b00085ef-68f2-5411-8bd4-0fc84bd3cac3",
+      "name": "Reply WhatsApp",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [
+        3040,
+        200
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "twilioApi": {
+          "id": "REPLACE_ME",
+          "name": "Twilio account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Messaging Settings').first().json.instagram_api_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ recipient: { id: $('Channel Enabled?').item.json.reply_to }, message: { text: String($json.output || 'Şu an teknik bir sorun yaşıyoruz, kusura bakmayın. Ekibimiz en kısa sürede size yazacak.').slice(0, 1000) } }) }}",
+        "options": {}
+      },
+      "id": "d8177fed-6d1c-51fc-b050-e60cadea9cb6",
+      "name": "Reply Instagram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3040,
+        360
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "Instagram Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Messaging Settings').first().json.messenger_api_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ recipient: { id: $('Channel Enabled?').item.json.reply_to }, messaging_type: 'RESPONSE', message: { text: String($json.output || 'Şu an teknik bir sorun yaşıyoruz, kusura bakmayın. Ekibimiz en kısa sürede size yazacak.').slice(0, 2000) } }) }}",
+        "options": {}
+      },
+      "id": "5a934eaf-e89f-5f3d-b04a-c1060e324d78",
+      "name": "Reply Messenger",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3040,
+        520
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "Messenger Page Token"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Meta In": {
+      "main": [
+        [
+          {
+            "node": "Sign Meta Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WhatsApp In": {
+      "main": [
+        [
+          {
+            "node": "Messaging Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meta Verify": {
+      "main": [
+        [
+          {
+            "node": "Messaging Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sign Meta Payload": {
+      "main": [
+        [
+          {
+            "node": "Messaging Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Messaging Settings": {
+      "main": [
+        [
+          {
+            "node": "Route Source",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Source": {
+      "main": [
+        [
+          {
+            "node": "Verify Token OK?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Meta Signature OK?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "WhatsApp Key OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Token OK?": {
+      "main": [
+        [
+          {
+            "node": "Return Challenge",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject Verify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meta Signature OK?": {
+      "main": [
+        [
+          {
+            "node": "Ack Meta",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject Meta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ack Meta": {
+      "main": [
+        [
+          {
+            "node": "Meta Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meta Events": {
+      "main": [
+        [
+          {
+            "node": "Split Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Events": {
+      "main": [
+        [
+          {
+            "node": "Is Customer Message?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Customer Message?": {
+      "main": [
+        [
+          {
+            "node": "Normalize Meta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WhatsApp Key OK?": {
+      "main": [
+        [
+          {
+            "node": "Ack Twilio",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ack Twilio": {
+      "main": [
+        [
+          {
+            "node": "Normalize WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Meta": {
+      "main": [
+        [
+          {
+            "node": "Channel Enabled?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Channel Enabled?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Channel Enabled?": {
+      "main": [
+        [
+          {
+            "node": "Reservation Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Reservation Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chat Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "Reservation Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check_availability": {
+      "ai_tool": [
+        [
+          {
+            "node": "Reservation Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "create_reservation": {
+      "ai_tool": [
+        [
+          {
+            "node": "Reservation Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "modify_reservation": {
+      "ai_tool": [
+        [
+          {
+            "node": "Reservation Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "cancel_reservation": {
+      "ai_tool": [
+        [
+          {
+            "node": "Reservation Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "find_reservation": {
+      "ai_tool": [
+        [
+          {
+            "node": "Reservation Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reservation Agent": {
+      "main": [
+        [
+          {
+            "node": "Route Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Reply": {
+      "main": [
+        [
+          {
+            "node": "Reply WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reply Instagram",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reply Messenger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Istanbul"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}
